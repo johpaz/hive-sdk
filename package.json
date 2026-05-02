@@ -37,9 +37,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --filter @johpaz/hive-sdk build",
     "typecheck": "tsc --build --force",
-    "prepublish": "bun run build",
+    "prepublish": "echo 'No build needed - Bun runs TypeScript directly'",
     "publish": "npm publish --access public"
   },
   "dependencies": {
