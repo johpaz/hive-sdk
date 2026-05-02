@@ -33,9 +33,6 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
-      - name: Build packages
-        run: bun run build
-
       - name: Configure NPM token
         run: |
           echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > .npmrc
