@@ -42,9 +42,19 @@ cd hive-sdk
 # Instalar dependencias (Bun)
 bun install
 
-# Iniciar el servidor
-bun run packages/gateway/src/server.ts
+# ⚠️ IMPORTANTE: Seed de la base de datos
+# Se requiere SQLite/PostgreSQL con tools, skills y agentes seedados
+# El servidor会自动 crea la BD en ./data si no existe
+# Para seed manual: ejecuta el script de seed del paquete storage
 ```
+
+## Requisitos
+
+- **Bun** 1.3.x
+- **SQLite** (incluido con Bun) o **PostgreSQL**
+- **Seed de datos** (tools, skills, modelos)
+
+> El servidor crea la BD automáticamente en `./data`. Para funcionamiento completo, ejecuta el seed de datos del paquete `storage`.
 
 ## Inicio Rápido
 

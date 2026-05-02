@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock, beforeAll } from "bun:test";
 
-// Mock the getDb to avoid needing real DB in unit tests
-const mockGetDb = {
+// Mock storage before importing
+const mockDb = {
   query: () => ({
     run: () => ({ lastInsertRowId: 1 }),
     all: () => [],
@@ -9,42 +9,49 @@ const mockGetDb = {
   }),
 };
 
-const mockLogger = {
-  child: () => mockLogger,
-  info: () => {},
-  debug: () => {},
-  warn: () => {},
-  error: () => {},
-};
-
-// Mock dependencies before importing
 mock.module("@hive-sdk/storage/sqlite", () => ({
-  getDb: () => mockGetDb,
+  getDb: () => mockDb,
 }));
 
 mock.module("@hive-sdk/utils/logger", () => ({
-  logger: mockLogger,
+  logger: {
+    child: () => ({
+      info: () => {},
+      debug: () => {},
+      warn: () => {},
+      error: () => {},
+    }),
+  },
 }));
 
-// Now import the module under test
+// Import after mocks
 import { 
-  agentBus, 
-  type AgentBusEventKey,
-  type AgentBusEventHandler,
+  agentBus,
   getUnreadMessagesForWorker,
   getProjectMessageHistory,
+  type AgentBusEventKey,
+  type AgentBusEventHandler,
 } from "../src/agent-bus";
+
+// Helper to clear all listeners between tests
+const clearAllListeners = () => {
+  // Access internal emitter to clear listeners
+  const emitter = (agentBus as any).emitter;
+  if (emitter && emitter.removeAllListeners) {
+    emitter.removeAllListeners();
+  }
+};
 
 describe("AgentBus", () => {
   let receivedEvents: Array<{ event: string; data: any }>;
 
   beforeEach(() => {
     receivedEvents = [];
-    agentBus.removeAllListeners();
+    clearAllListeners();
   });
 
   afterEach(() => {
-    agentBus.removeAllListeners();
+    clearAllListeners();
   });
 
   describe("publish/subscribe", () => {

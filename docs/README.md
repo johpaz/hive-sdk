@@ -85,8 +85,11 @@ Hive SDK es un framework de agentes inteligentes desarrollado en TypeScript/Node
 ### Requisitos
 
 - **Runtime**: Bun 1.3.x o Node.js 18+
-- **Base de datos**: SQLite (incluida con Bun)
+- **Base de datos**: SQLite o PostgreSQL (requerido)
+- **Seed de datos**: tools, skills, agentes inicializados
 - **Puerto**: 3000 (default)
+
+> ⚠️ **IMPORTANTE**: Para que las tools y skills funcionen correctamente, debes tener una base de datos con el schema y datos seedados. Ver sección [Configuración de Base de Datos](#configuración-de-base-de-datos).
 
 ### Estructura del Proyecto
 
@@ -106,6 +109,60 @@ hive-sdk/
 │   └── streaming/         # Benchmarks streaming
 └── docs/                  # Documentación
 ```
+
+### Configuración de Base de Datos
+
+El SDK requiere una base de datos SQLite o PostgreSQL con el schema y datos seedados.
+
+#### Schema Requerido
+
+```sql
+-- Tablas principales
+CREATE TABLE users (...);
+CREATE TABLE agents (...);
+CREATE TABLE providers (...);
+CREATE TABLE models (...);
+CREATE TABLE tools (...);
+CREATE TABLE skills (...);
+CREATE TABLE conversations (...);
+CREATE TABLE messages (...);
+
+-- Índices FTS5 para búsqueda
+CREATE VIRTUAL TABLE tools_fts USING fts5(tool_name, name, description, category);
+CREATE VIRTUAL TABLE skills_fts USING fts5(id, name, description, category, tools, triggers, body);
+```
+
+#### Seed de Datos
+
+El SDK incluye un script de seed para populate la base de datos:
+
+```typescript
+// Ejecutar seed
+import { seedDatabase } from "@hive-sdk/storage/seed";
+
+await seedDatabase();
+```
+
+Esto crea:
+- **Providers**: OpenAI, Anthropic, Ollama, DeepSeek, Gemini, etc.
+- **Models**: gpt-4o, gpt-4o-mini, claude-sonnet, etc.
+- **Core Tools**: ~50 herramientas básicas
+- **Core Skills**: Skills predefinidos
+- **Agentes**: Agentes por defecto
+
+#### Configuración de conexión
+
+```typescript
+// SQLite (default)
+import { getDb } from "@hive-sdk/storage/sqlite";
+const db = getDb(); // usa HIVE_DATA_DIR o ./data
+
+// PostgreSQL (alternativo)
+import { getPgDb } from "@hive-sdk/storage/postgres";
+const db = getPgDb({ host: "localhost", port: 5432, database: "hive" });
+```
+
+> ⚠️ **NOTA**: Sin el seed de datos, el Tool Selector y Skill Selector retornarán arrays vacíos porque no encontrarán tools/skills en la base de datos.
 
 ### Iniciar el Servidor
 
