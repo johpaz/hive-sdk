@@ -1,0 +1,100 @@
+name: Version Bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Type of bump (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.version.outputs.new_version }}
+      tag: ${{ steps.version.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Bump version
+        id: version
+        run: |
+          current=$(node -p "require('./package.json').version")
+          echo "Current version: $current"
+          
+          IFS='.' read -ra parts <<< "$current"
+          major=${parts[0]}
+          minor=${parts[1]}
+          patch=${parts[2]}
+          
+          case "${{ github.inputs.bump }}" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+          
+          new_version="$major.$minor.$patch"
+          echo "New version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          echo "tag=v$new_version" >> $GITHUB_OUTPUT
+
+      - name: Update package.json
+        run: |
+          npm version ${{ steps.version.outputs.new_version }} --no-git-tag-version
+
+      - name: Update CHANGELOG
+        run: |
+          date=$(date +%Y-%m-%d)
+          echo "# ${{ steps.version.outputs.new_version }} ($date)" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "## Changes" >> CHANGELOG.md
+          echo "- Version bump" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: bump version to ${{ steps.version.outputs.new_version }}"
+          branch: bump-version
+          delete-branch: true
+          title: "Bump version to ${{ steps.version.outputs.new_version }}"
+          body: |
+            Version bump to ${{ steps.version.outputs.new_version }}
+            
+            Use `/publish` workflow to publish to NPM.
+          labels: version-bump
+
+  tag:
+    needs: bump
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Git Tag
+        run: |
+          git tag ${{ needs.bump.outputs.tag }}
+          git push origin ${{ needs.bump.outputs.tag }}

@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Production
+build/
+dist/
+*.js.map
+
+# Logs
+logs
+*.log
+npm-debug.log*
+bun-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Bun
+.bun/
+bun.lockb
+
+# TypeScript
+*.tsbuildinfo
+
+# Temporary
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Build artifacts
+packages/*/dist/
+packages/*/build/
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache

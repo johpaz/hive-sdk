@@ -1,0 +1,7 @@
+[test]
+preload = ["./test/setup-db.ts"]
+timeout = 30000
+randomize = false
+
+[install]
+registry = "https://registry.npmjs.org/"

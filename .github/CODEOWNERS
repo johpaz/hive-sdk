@@ -1,0 +1,9 @@
+# Code Owners
+* @anomalyco @johpaz
+
+# Reviewers
+/.github/ @anomalyco
+/docs/ @johpaz
+/packages/agent/ @johpaz
+/packages/scheduler/ @johpaz
+/packages/events/ @johpaz

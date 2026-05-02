@@ -1,0 +1,110 @@
+{
+  "name": "@johpaz/hive-sdk",
+  "version": "1.0.0",
+  "description": "Hive SDK — Crear agentes IA con todo incluido: agentes, tools, skills, MCP, TTS, canales, gateway y más.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./agents": {
+      "types": "./src/agents.ts",
+      "default": "./src/agents.ts"
+    },
+    "./tools": {
+      "types": "./src/tools.ts",
+      "default": "./src/tools.ts"
+    },
+    "./skills": {
+      "types": "./src/skills.ts",
+      "default": "./src/skills.ts"
+    },
+    "./mcp": {
+      "types": "./src/mcp.ts",
+      "default": "./src/mcp.ts"
+    },
+    "./tts": {
+      "types": "./src/tts.ts",
+      "default": "./src/tts.ts"
+    },
+    "./channels": {
+      "types": "./src/channels.ts",
+      "default": "./src/channels.ts"
+    },
+    "./storage": {
+      "types": "./src/storage.ts",
+      "default": "./src/storage.ts"
+    },
+    "./gateway": {
+      "types": "./src/gateway.ts",
+      "default": "./src/gateway.ts"
+    },
+    "./scheduler": {
+      "types": "./src/scheduler.ts",
+      "default": "./src/scheduler.ts"
+    },
+    "./events": {
+      "types": "./src/events.ts",
+      "default": "./src/events.ts"
+    },
+    "./state": {
+      "types": "./src/state.ts",
+      "default": "./src/state.ts"
+    },
+    "./security": {
+      "types": "./src/security.ts",
+      "default": "./src/security.ts"
+    },
+    "./config": {
+      "types": "./src/config.ts",
+      "default": "./src/config.ts"
+    },
+    "./canvas": {
+      "types": "./src/canvas.ts",
+      "default": "./src/canvas.ts"
+    },
+    "./voice": {
+      "types": "./src/voice.ts",
+      "default": "./src/voice.ts"
+    },
+    "./multimodal": {
+      "types": "./src/multimodal.ts",
+      "default": "./src/multimodal.ts"
+    },
+    "./utils": {
+      "types": "./src/utils.ts",
+      "default": "./src/utils.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./src/types.ts"
+    }
+  },
+  "peerDependencies": {
+    "typescript": "6.0.2"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "hive",
+    "sdk",
+    "agents",
+    "ai",
+    "llm",
+    "mcp",
+    "tts",
+    "multi-channel",
+    "telegram",
+    "discord",
+    "whatsapp",
+    "slack"
+  ]
+}
