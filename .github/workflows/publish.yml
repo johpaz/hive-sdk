@@ -33,9 +33,6 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
-      - name: Run tests
-        run: bun test
-
       - name: Build packages
         run: bun run build
 

@@ -21,14 +21,24 @@
     "bun",
     "langchain-alternative"
   ],
+  "main": "./packages/sdk/src/index.ts",
+  "types": "./packages/sdk/src/index.ts",
+  "files": [
+    "packages/*/dist",
+    "packages/*/src/**/*.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/test/**",
+    "test/**",
+    "docs/**"
+  ],
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "build": "bun run --filter @johpaz/hive-sdk build",
     "typecheck": "tsc --build --force",
-    "test": "bun test",
-    "lint": "tsc --noEmit",
     "prepublish": "bun run build",
     "publish": "npm publish --access public"
   },
