@@ -37,6 +37,7 @@
     "packages/*"
   ],
   "scripts": {
+    "build": "bun run typecheck",
     "typecheck": "tsc --build --force",
     "prepublish": "echo 'No build needed - Bun runs TypeScript directly'",
     "publish": "npm publish --access public"
