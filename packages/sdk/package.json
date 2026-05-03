@@ -1,6 +1,6 @@
 {
   "name": "@johpaz/hive-sdk",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "Hive SDK — Crear agentes IA con todo incluido: agentes, tools, skills, MCP, TTS, canales, gateway y más.",
   "license": "MIT",
   "type": "module",
