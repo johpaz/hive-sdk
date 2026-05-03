@@ -1,6 +1,6 @@
 {
   "name": "hive-sdk-workspace",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "private": false,
   "description": "Hive SDK — Agentes AI de alto rendimiento con orquestación DAG built-in",
   "license": "MIT",
