@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "hive-sdk",
+      "name": "@johpaz/hive-sdk",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
         "@google/genai": "^1.43.0",
