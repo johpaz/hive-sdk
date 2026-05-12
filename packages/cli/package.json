@@ -1,5 +1,5 @@
 {
-  "name": "@hive/cli",
+  "name": "@johpaz/hive-cli",
   "version": "0.0.15",
   "description": "Hive CLI — init, run, test, trace",
   "license": "MIT",
@@ -12,6 +12,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@hive/core": "workspace:*"
+    "@johpaz/hive-core": "workspace:*"
   }
 }

@@ -17,7 +17,7 @@ Función de alto nivel para crear y ejecutar agentes.
 ### Firma
 
 ```typescript
-import { createAgent } from "@hive/core";
+import { createAgent } from "@johpaz/hive-core";
 
 const agent = await createAgent(config: AgentConfig): Promise<Agent>
 ```
@@ -77,7 +77,7 @@ type AgentEvent =
 ### Ejemplo
 
 ```typescript
-import { createAgent, defineTool } from "@hive/core";
+import { createAgent, defineTool } from "@johpaz/hive-core";
 
 const agent = await createAgent({
   name: "asistente",
@@ -102,7 +102,7 @@ const respuesta = await agent.run("Analiza las ventas del mes");
 Define una herramienta que el agente puede invocar.
 
 ```typescript
-import { defineTool } from "@hive/core";
+import { defineTool } from "@johpaz/hive-core";
 
 const tool = defineTool({
   name: "saludar",
@@ -132,7 +132,7 @@ interface ToolDefinition {
 Define una composición de herramientas con triggers semánticos.
 
 ```typescript
-import { defineSkill } from "@hive/core";
+import { defineSkill } from "@johpaz/hive-core";
 
 const skill = defineSkill({
   name: "analisis-datos",
@@ -153,7 +153,7 @@ const skill = defineSkill({
 Clase de bajo nivel para control directo del bucle del agente.
 
 ```typescript
-import { AgentLoop, buildAgentLoop } from "@hive/core";
+import { AgentLoop, buildAgentLoop } from "@johpaz/hive-core";
 
 const loop = buildAgentLoop({ mcpManager });
 
@@ -185,7 +185,7 @@ interface StreamChunk {
 ### runAgent (bajo nivel)
 
 ```typescript
-import { runAgent, runAgentIsolated } from "@hive/core";
+import { runAgent, runAgentIsolated } from "@johpaz/hive-core";
 
 // Streaming
 for await (const chunk of runAgent({
@@ -211,7 +211,7 @@ const result = await runAgentIsolated({
 Selección automática de tools basada en FTS5.
 
 ```typescript
-import { selectTools, CORE_TOOL_CATALOG } from "@hive/core";
+import { selectTools, CORE_TOOL_CATALOG } from "@johpaz/hive-core";
 
 // Seleccionar tools relevantes
 const tools = selectTools("Buscar archivos en el proyecto");
@@ -251,7 +251,7 @@ const MIN_RELEVANCE_THRESHOLD = -30;
 ## Skill Selector
 
 ```typescript
-import { selectSkills, getMinimalSkills } from "@hive/core";
+import { selectSkills, getMinimalSkills } from "@johpaz/hive-core";
 
 // Skills según mensaje
 const skills = selectSkills("Analyze the sales data");
@@ -276,7 +276,7 @@ const minimal = getMinimalSkills();
 ### callLLM
 
 ```typescript
-import { callLLM, resolveProviderConfig } from "@hive/core";
+import { callLLM, resolveProviderConfig } from "@johpaz/hive-core";
 
 const config = await resolveProviderConfig("openai", "gpt-4o-mini");
 

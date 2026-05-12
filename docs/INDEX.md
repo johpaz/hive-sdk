@@ -18,7 +18,7 @@
 ### 1. Crear Agente (nueva API)
 
 ```typescript
-import { createAgent, defineTool } from "@hive/core";
+import { createAgent, defineTool } from "@johpaz/hive-core";
 
 const tool = defineTool({
   name: "saludar",
@@ -39,7 +39,7 @@ const respuesta = await agent.run("Saluda a Juan");
 ### 2. Crear un Swarm
 
 ```typescript
-import { DAGScheduler, TaskGraph } from "@hive/core";
+import { DAGScheduler, TaskGraph } from "@johpaz/hive-core";
 
 const graph = new TaskGraph([
   { id: "task1", agentId: "worker", taskDescription: "Tarea 1", deps: [] },
@@ -55,7 +55,7 @@ const result = await new DAGScheduler().execute(graph);
 
 ```
 packages/
-├── core/                   # @hive/core
+├── core/                   # @johpaz/hive-core
 │   └── src/
 │       ├── agent/          # AgentLoop, ContextCompiler
 │       │   ├── providers/  # LLM providers (OpenAI, Anthropic, Gemini, Ollama)
@@ -76,7 +76,7 @@ packages/
 │       ├── api/            # createAgent()
 │       └── index.ts        # Public API
 │
-└── cli/                    # @hive/cli
+└── cli/                    # @johpaz/hive-cli
     └── src/
         └── commands/       # init, run, test, trace
 ```

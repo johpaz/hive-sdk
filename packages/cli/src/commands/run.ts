@@ -10,7 +10,7 @@ async function runCommand() {
 	}
 
 	console.log(`Running agent from ${agentFile}...`);
-	const { createAgent } = await import("@hive/core");
+	const { createAgent } = await import("@johpaz/hive-core");
 	const agentModule = await import(agentFile);
 
 	if (agentModule.agent) {

@@ -9,12 +9,12 @@ const HIVE_CONFIG = `{
   "version": "0.1.0",
   "type": "module",
   "dependencies": {
-    "@hive/core": "latest"
+    "@johpaz/hive-core": "latest"
   }
 }
 `;
 
-const HIVE_AGENT_TS = `import { createAgent, defineTool } from "@hive/core";
+const HIVE_AGENT_TS = `import { createAgent, defineTool } from "@johpaz/hive-core";
 
 const myTool = defineTool({
   name: "hello",
