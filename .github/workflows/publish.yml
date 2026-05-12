@@ -96,12 +96,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "Release ${{ github.ref_name }}" \
-            --notes "## What's New
+          cat > release-notes.md <<- EOM
+          ## What's New
 
-          - @hive/core v${{ github.ref_name }} — Agent framework with Context Engineering, FTS5, ACE, Swarm
-          - @hive/cli v${{ github.ref_name }} — CLI tools: init, run, test, trace
+          - @hive/core ${{ github.ref_name }} — Agent framework with Context Engineering, FTS5, ACE, Swarm
+          - @hive/cli ${{ github.ref_name }} — CLI tools: init, run, test, trace
 
           ### Breaking Changes
           - Restructured from 24 packages to 3 (@hive/core, @hive/cli)
@@ -109,5 +108,9 @@ jobs:
           - Gateway, channels, TTS moved to hive-app repo
 
           ### Changelog
-          See [CHANGELOG.md](CHANGELOG.md) for details." \
+          See [CHANGELOG.md](CHANGELOG.md) for details.
+          EOM
+          gh release create "${{ github.ref_name }}" \
+            --title "Release ${{ github.ref_name }}" \
+            --notes-file release-notes.md \
             --draft=false
