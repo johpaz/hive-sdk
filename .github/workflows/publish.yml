@@ -53,28 +53,31 @@ jobs:
           VERSION="${VERSION#v}"
           echo "Publishing version: $VERSION"
 
-          node -e "const p=require('./package.json'); p.version='$VERSION'; require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2)+'\n')"
+          # Sync version to root package.json
+          node -e "
+            const p=require('./package.json');
+            p.version='$VERSION';
+            delete p.private;
+            require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2)+'\n')
+          "
 
+          # Sync version to workspace packages (for local consistency)
           for dir in packages/core packages/cli; do
             node -e "
               const p=require('./$dir/package.json');
               p.version='$VERSION';
-              if (p.dependencies) {
-                for (const [k,v] of Object.entries(p.dependencies)) {
-                  if (v==='workspace:*') p.dependencies[k]='$VERSION';
-                }
-              }
               require('fs').writeFileSync('./$dir/package.json', JSON.stringify(p,null,2)+'\n')
             "
           done
 
-          cd packages/core && npm publish --access public && cd ../..
-          cd packages/cli && npm publish --access public && cd ../..
+          # Publish only the root package (workspace packages are NOT published separately)
+          npm publish --access public
 
+          # Restore private: true to root
           node -e "
-            const p=require('./packages/cli/package.json');
-            if (p.dependencies && p.dependencies['@hive/core']) p.dependencies['@hive/core']='workspace:*';
-            require('fs').writeFileSync('./packages/cli/package.json', JSON.stringify(p,null,2)+'\n')
+            const p=require('./package.json');
+            p.private=true;
+            require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2)+'\n')
           "
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
