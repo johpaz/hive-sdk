@@ -16,7 +16,7 @@ Los workers ejecutan tareas dentro de un swarm.
 ### AgentExecutor
 
 ```typescript
-import { AgentExecutor } from "@johpaz/hive-core";
+import { AgentExecutor } from "@hive/core";
 
 const executor = new AgentExecutor();
 const result = await executor.execute(node, depResults, threadId);
@@ -27,7 +27,7 @@ const result = await executor.execute(node, depResults, threadId);
 Pool de workers para ejecución concurrente.
 
 ```typescript
-import { setSchedulerForCleanup, executeScheduledTask } from "@johpaz/hive-core/swarm/workers";
+import { setSchedulerForCleanup, executeScheduledTask } from "@hive/core/swarm/workers";
 
 // Programar task
 await executeScheduledTask(job);
@@ -36,7 +36,7 @@ await executeScheduledTask(job);
 ### Worker Custom
 
 ```typescript
-import type { IAgentExecutor } from "@johpaz/hive-core";
+import type { IAgentExecutor } from "@hive/core";
 
 const myWorker: IAgentExecutor = {
   async execute(node, depResults, threadId) {
@@ -54,7 +54,7 @@ const myWorker: IAgentExecutor = {
 Sistema de eventos singleton para comunicación entre agentes.
 
 ```typescript
-import { agentBus, getUnreadMessagesForWorker } from "@johpaz/hive-core";
+import { agentBus, getUnreadMessagesForWorker } from "@hive/core";
 
 // Publicar evento
 agentBus.publish("worker:task_started", { taskId: "task-1" }, "worker-1");
@@ -74,7 +74,7 @@ unsub();
 import { 
   getUnreadMessagesForWorker, 
   getProjectMessageHistory 
-} from "@johpaz/hive-core";
+} from "@hive/core";
 
 // Mensajes no leídos para un worker
 const messages = getUnreadMessagesForWorker("worker-1");
@@ -90,7 +90,7 @@ const history = getProjectMessageHistory("project-1");
 EventBus global singleton (eventos del sistema).
 
 ```typescript
-import { eventBus } from "@johpaz/hive-core";
+import { eventBus } from "@hive/core";
 
 // Escuchar eventos
 eventBus.on("agent:start", (data) => {
@@ -108,7 +108,7 @@ eventBus.emit("agent:complete", { agentId: "a1", result: "ok" });
 Eventos de actualización visual del canvas.
 
 ```typescript
-import { emitCanvas } from "@johpaz/hive-core/canvas";
+import { emitCanvas } from "@hive/core/canvas";
 
 // Actualizar estado de un nodo
 emitCanvas("canvas:node_update", {
@@ -125,7 +125,7 @@ emitCanvas("canvas:worker_update", { workerId, changes });
 ### CanvasManager
 
 ```typescript
-import { CanvasManager, canvasManager } from "@johpaz/hive-core/canvas";
+import { CanvasManager, canvasManager } from "@hive/core/canvas";
 
 // Singleton
 const canvas = canvasManager;

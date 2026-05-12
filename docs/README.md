@@ -23,7 +23,7 @@ bun test packages/core/src/
 ```
 
 ```typescript
-import { createAgent, defineTool } from "@johpaz/hive-core";
+import { createAgent, defineTool } from "@hive/core";
 
 const tool = defineTool({
   name: "saludar",
@@ -54,7 +54,7 @@ LOG_LEVEL=info                 # debug | info | warn | error
 ## Changelog
 
 ### v2.0.0
-- Restructura completa a @johpaz/hive-core, @johpaz/hive-cli
+- Restructura completa a @hive/core, @hive/cli
 - Nueva API: createAgent, defineTool, defineSkill
 - Eliminados: gateway, channels, tts, voice service (migrados a hive-app)
 - FTS5 preservado como ventaja competitiva

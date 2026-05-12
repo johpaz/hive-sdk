@@ -51,35 +51,30 @@ jobs:
         run: |
           VERSION="${{ github.event.inputs.version || github.ref_name }}"
           VERSION="${VERSION#v}"
-          WORKDIR="${{ github.workspace }}"
           echo "Publishing version: $VERSION"
 
-          # Update root package.json version
-          node -e "const p=require('$WORKDIR/package.json'); p.version='$VERSION'; require('fs').writeFileSync('$WORKDIR/package.json', JSON.stringify(p,null,2)+'\n')"
+          node -e "const p=require('./package.json'); p.version='$VERSION'; require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2)+'\n')"
 
-          # Update workspace packages: set version + resolve workspace:* deps
           for dir in packages/core packages/cli; do
             node -e "
-              const p=require('$WORKDIR/$dir/package.json');
+              const p=require('./$dir/package.json');
               p.version='$VERSION';
               if (p.dependencies) {
                 for (const [k,v] of Object.entries(p.dependencies)) {
                   if (v==='workspace:*') p.dependencies[k]='$VERSION';
                 }
               }
-              require('fs').writeFileSync('$WORKDIR/$dir/package.json', JSON.stringify(p,null,2)+'\n')
+              require('fs').writeFileSync('./$dir/package.json', JSON.stringify(p,null,2)+'\n')
             "
           done
 
-          # Publish in dependency order
-          (cd "$WORKDIR/packages/core" && npm publish --access public) || echo "@johpaz/hive-core publish failed (may need npm org setup)"
-          (cd "$WORKDIR/packages/cli" && npm publish --access public) || echo "@johpaz/hive-cli publish failed"
+          cd packages/core && npm publish --access public && cd ../..
+          cd packages/cli && npm publish --access public && cd ../..
 
-          # Restore workspace:* deps
           node -e "
-            const p=require('$WORKDIR/packages/cli/package.json');
-            if (p.dependencies && p.dependencies['@johpaz/hive-core']) p.dependencies['@johpaz/hive-core']='workspace:*';
-            require('fs').writeFileSync('$WORKDIR/packages/cli/package.json', JSON.stringify(p,null,2)+'\n')
+            const p=require('./packages/cli/package.json');
+            if (p.dependencies && p.dependencies['@hive/core']) p.dependencies['@hive/core']='workspace:*';
+            require('fs').writeFileSync('./packages/cli/package.json', JSON.stringify(p,null,2)+'\n')
           "
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

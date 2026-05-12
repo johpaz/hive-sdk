@@ -35,7 +35,7 @@ Representa una tarea individual en el grafo.
 ### TaskNodeConfig
 
 ```typescript
-import { TaskNode } from "@johpaz/hive-core";
+import { TaskNode } from "@hive/core";
 
 interface TaskNodeConfig {
   id: string;
@@ -76,7 +76,7 @@ node.markCompleted("datos obtenidos");
 Grafo acíclico dirigido de tareas.
 
 ```typescript
-import { TaskGraph } from "@johpaz/hive-core";
+import { TaskGraph } from "@hive/core";
 
 const graph = new TaskGraph([
   { id: "a", agentId: "worker", taskDescription: "Tarea A", deps: [] },
@@ -109,7 +109,7 @@ const progress = graph.getProgress();
 Orquestador principal de la ejecución.
 
 ```typescript
-import { DAGScheduler, TaskGraph } from "@johpaz/hive-core";
+import { DAGScheduler, TaskGraph } from "@hive/core";
 
 const graph = new TaskGraph([
   { id: "fetch", agentId: "fetcher", taskDescription: "Fetch data", deps: [] },
@@ -162,7 +162,7 @@ scheduler.abort();    // Abortar ejecución en curso
 ### ParallelStrategy (FIFO)
 
 ```typescript
-import { ParallelStrategy } from "@johpaz/hive-core";
+import { ParallelStrategy } from "@hive/core";
 
 const strategy = new ParallelStrategy();  // Orden de llegada
 ```
@@ -170,7 +170,7 @@ const strategy = new ParallelStrategy();  // Orden de llegada
 ### PriorityStrategy
 
 ```typescript
-import { PriorityStrategy } from "@johpaz/hive-core";
+import { PriorityStrategy } from "@hive/core";
 
 const strategy = new PriorityStrategy();  // Por prioridad + path crítico
 ```
@@ -178,7 +178,7 @@ const strategy = new PriorityStrategy();  // Por prioridad + path crítico
 ### Custom Strategy
 
 ```typescript
-import type { ExecutionStrategy } from "@johpaz/hive-core";
+import type { ExecutionStrategy } from "@hive/core";
 
 const myStrategy: ExecutionStrategy = {
   initialize(nodes) { /* precomputar */ },
@@ -195,7 +195,7 @@ Grafos predefinidos.
 ### ResearchPreset
 
 ```typescript
-import { createResearchGraph } from "@johpaz/hive-core/swarm/presets";
+import { createResearchGraph } from "@hive/core/swarm/presets";
 
 const graph = createResearchGraph({
   agents: { researcher: "researcher-id", writer: "writer-id" },
@@ -206,7 +206,7 @@ const graph = createResearchGraph({
 ### HiveLearnPreset
 
 ```typescript
-import { createHiveLearnGraph } from "@johpaz/hive-core/swarm/presets";
+import { createHiveLearnGraph } from "@hive/core/swarm/presets";
 
 const graph = createHiveLearnGraph({
   agents: { teacher: "teacher-id", student: "student-id" },
@@ -221,7 +221,7 @@ const graph = createHiveLearnGraph({
 Puente de eventos entre el scheduler y el resto del sistema.
 
 ```typescript
-import { EventBridge } from "@johpaz/hive-core";
+import { EventBridge } from "@hive/core";
 
 const bridge = new EventBridge("swarm-123", "project-1", "coordinator-1");
 
@@ -239,7 +239,7 @@ bridge.onSwarmCompleted = (result) => {
 ## IAgentExecutor
 
 ```typescript
-import type { IAgentExecutor } from "@johpaz/hive-core";
+import type { IAgentExecutor } from "@hive/core";
 
 const myExecutor: IAgentExecutor = {
   async execute(node, depResults, threadId) {

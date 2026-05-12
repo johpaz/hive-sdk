@@ -19,7 +19,7 @@
 Función para definir herramientas que el agente puede invocar.
 
 ```typescript
-import { defineTool } from "@johpaz/hive-core";
+import { defineTool } from "@hive/core";
 
 const tool = defineTool({
   name: "saludar",
@@ -35,7 +35,7 @@ const tool = defineTool({
 Registro central de herramientas.
 
 ```typescript
-import { ToolRegistry, defineTool } from "@johpaz/hive-core";
+import { ToolRegistry, defineTool } from "@hive/core";
 
 const reg = new ToolRegistry();
 
@@ -62,7 +62,7 @@ reg.clear();
 Ejecutor de herramientas con validación Zod.
 
 ```typescript
-import { ToolRegistry, ToolExecutor, defineTool } from "@johpaz/hive-core";
+import { ToolRegistry, ToolExecutor, defineTool } from "@hive/core";
 
 const reg = new ToolRegistry();
 reg.register(defineTool({
@@ -87,7 +87,7 @@ const results = await exec.executeBatch([
 ### Tool Selection (FTS5)
 
 ```typescript
-import { selectTools, CORE_TOOL_CATALOG } from "@johpaz/hive-core";
+import { selectTools, CORE_TOOL_CATALOG } from "@hive/core";
 
 // Selección automática por relevancia
 const tools = selectTools("Buscar archivos en el proyecto");
@@ -103,7 +103,7 @@ const webTools = tools.filter(t => t.category === "web");
 ### defineSkill
 
 ```typescript
-import { defineSkill } from "@johpaz/hive-core";
+import { defineSkill } from "@hive/core";
 
 const skill = defineSkill({
   name: "file-manager",
@@ -122,7 +122,7 @@ const skill = defineSkill({
 Carga skills desde archivos YAML o datos bundled.
 
 ```typescript
-import { SkillLoader } from "@johpaz/hive-core";
+import { SkillLoader } from "@hive/core";
 
 const loader = new SkillLoader({
   allowBundled: ["file-manager", "web-researcher"],
@@ -142,7 +142,7 @@ Model Context Protocol — herramientas externas via STDIO/SSE.
 ### MCPClientManager
 
 ```typescript
-import { MCPClientManager } from "@johpaz/hive-core";
+import { MCPClientManager } from "@hive/core";
 
 // Configurar con servidores
 const mcp = new MCPClientManager({
@@ -176,7 +176,7 @@ await mcp.updateConfig({ servers: { ... } });
 Sincroniza tools MCP con la base de datos FTS5.
 
 ```typescript
-import { syncMCPToolsToDB, syncMCPToolsToFTS, clearMCPToolsFromDB } from "@johpaz/hive-core/mcp";
+import { syncMCPToolsToDB, syncMCPToolsToFTS, clearMCPToolsFromDB } from "@hive/core/mcp";
 
 await syncMCPToolsToDB(mcpManager);
 await syncMCPToolsToFTS();
@@ -185,7 +185,7 @@ await syncMCPToolsToFTS();
 ### Transports
 
 ```typescript
-import { createTransport, SSETransport, WebSocketTransport } from "@johpaz/hive-core/mcp/transports";
+import { createTransport, SSETransport, WebSocketTransport } from "@hive/core/mcp/transports";
 
 // STDIO
 const transport = createTransport({
@@ -207,7 +207,7 @@ const ws = new WebSocketTransport({ url: "wss://api.example.com/mcp" });
 Visualización en tiempo real del estado de agentes.
 
 ```typescript
-import { CanvasManager, canvasManager, emitCanvas } from "@johpaz/hive-core/canvas";
+import { CanvasManager, canvasManager, emitCanvas } from "@hive/core/canvas";
 
 // Singleton
 canvasManager.subscribe("agent-1", (update) => {
@@ -224,7 +224,7 @@ emitCanvas("canvas:node_update", {
 ### A2UI Tools
 
 ```typescript
-import { createA2UISurfaceTool, createA2UIUpdateComponentsTool } from "@johpaz/hive-core/canvas";
+import { createA2UISurfaceTool, createA2UIUpdateComponentsTool } from "@hive/core/canvas";
 
 // Crear tools A2UI para UI generada por agentes
 const surfaceTool = createA2UISurfaceTool();
@@ -238,7 +238,7 @@ const updateTool = createA2UIUpdateComponentsTool();
 Base de datos SQLite con FTS5.
 
 ```typescript
-import { initializeDatabase, getDb, dbService } from "@johpaz/hive-core";
+import { initializeDatabase, getDb, dbService } from "@hive/core";
 
 // Inicializar (crea tablas si no existen)
 await initializeDatabase();
@@ -272,7 +272,7 @@ CREATE VIRTUAL TABLE mcp_tools_fts USING fts5(id, name, description, category);
 ## Config
 
 ```typescript
-import { loadConfig, loadEnv, getHiveDir } from "@johpaz/hive-core";
+import { loadConfig, loadEnv, getHiveDir } from "@hive/core";
 
 const config = await loadConfig();
 // { HIVE_DATA_DIR: "./data", LOG_LEVEL: "info", ... }
@@ -285,7 +285,7 @@ const hiveDir = getHiveDir();  // ~/.hive o HIVE_DATA_DIR
 ## Gateway (stub)
 
 ```typescript
-import { sendToUserChannel } from "@johpaz/hive-core/gateway";
+import { sendToUserChannel } from "@hive/core/gateway";
 
 // Stub — logs al console, retorna { ok: true }
 // Reemplazar cuando se integre con un sistema de notificaciones real

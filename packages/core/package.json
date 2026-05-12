@@ -1,5 +1,5 @@
 {
-  "name": "@johpaz/hive-core",
+  "name": "@hive/core",
   "version": "0.0.15",
   "description": "Hive Core — Agentes AI con Context Engineering, FTS5, ACE, Swarm",
   "license": "MIT",

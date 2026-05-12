@@ -1,7 +1,7 @@
 export {};
 async function traceCommand() {
-	const { initializeDatabase } = await import("@johpaz/hive-core");
-	const { getDb } = await import("@johpaz/hive-core/storage");
+	const { initializeDatabase } = await import("@hive/core");
+	const { getDb } = await import("@hive/core/storage");
 
 	await initializeDatabase();
 	const db = getDb();

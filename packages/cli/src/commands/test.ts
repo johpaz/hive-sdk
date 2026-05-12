@@ -4,7 +4,7 @@ async function testCommand() {
 
 	console.log("Hive Test Runner\n");
 
-	const { initializeDatabase, dbService } = await import("@johpaz/hive-core");
+	const { initializeDatabase, dbService } = await import("@hive/core");
 	await initializeDatabase();
 
 	const { Glob } = await import("bun");

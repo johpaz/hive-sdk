@@ -25,8 +25,8 @@
     "declarationMap": true,
 
     "paths": {
-      "@johpaz/hive-core": ["./packages/core/src/index.ts"],
-      "@johpaz/hive-core/*": ["./packages/core/src/*"]
+      "@hive/core": ["./packages/core/src/index.ts"],
+      "@hive/core/*": ["./packages/core/src/*"]
     }
   },
   "include": [

@@ -12,8 +12,8 @@ Framework de agentes AI con Context Engineering, FTS5, ACE y Swarm — construid
 
 | Paquete | Descripción |
 |---------|-------------|
-| `@johpaz/hive-core` | Core del framework: agente, tools, skills, MCP, storage, swarm, canvas, ACE |
-| `@johpaz/hive-cli` | CLI: `hive init`, `hive run`, `hive test`, `hive trace` |
+| `@hive/core` | Core del framework: agente, tools, skills, MCP, storage, swarm, canvas, ACE |
+| `@hive/cli` | CLI: `hive init`, `hive run`, `hive test`, `hive trace` |
 
 ## Instalación
 
@@ -26,7 +26,7 @@ bun install
 ## Inicio Rápido
 
 ```typescript
-import { createAgent, defineTool } from "@johpaz/hive-core";
+import { createAgent, defineTool } from "@hive/core";
 
 const myTool = defineTool({
   name: "saludar",
@@ -48,7 +48,7 @@ console.log(respuesta);
 ## Crear un Swarm (DAG)
 
 ```typescript
-import { DAGScheduler, TaskGraph } from "@johpaz/hive-core";
+import { DAGScheduler, TaskGraph } from "@hive/core";
 
 const graph = new TaskGraph([
   { id: "fetch", agentId: "fetcher", taskDescription: "Obtener datos", deps: [] },
@@ -64,7 +64,7 @@ const result = await new DAGScheduler().execute(graph);
 ```
 hive-sdk/
 ├── packages/
-│   ├── core/                   # @johpaz/hive-core
+│   ├── core/                   # @hive/core
 │   │   └── src/
 │   │       ├── agent/          # AgentLoop, ContextCompiler, ConversationStore
 │   │       │   ├── providers/  # LLM: OpenAI, Anthropic, Gemini, Ollama
@@ -89,7 +89,7 @@ hive-sdk/
 │   │       ├── api/            # createAgent()
 │   │       └── index.ts        # Public API barrel
 │   │
-│   └── cli/                    # @johpaz/hive-cli
+│   └── cli/                    # @hive/cli
 │       └── src/
 │           ├── index.ts        # Entry: hive {init,run,test,trace}
 │           └── commands/
@@ -128,7 +128,7 @@ import {
   initializeDatabase,    // Inicializar BD
   loadConfig,            // Cargar configuración
   logger,                // Logger
-} from "@johpaz/hive-core";
+} from "@hive/core";
 ```
 
 ## Testing

@@ -18,7 +18,7 @@ Compila todo el contexto necesario para cada ejecución del agente.
 ### compileContext
 
 ```typescript
-import { compileContext } from "@johpaz/hive-core";
+import { compileContext } from "@hive/core";
 
 const ctx = await compileContext({
   agentId: "analyst",
@@ -52,7 +52,7 @@ El Context Compiler implementa 4 estrategias de Context Engineering:
 ### addMessage
 
 ```typescript
-import { addMessage } from "@johpaz/hive-core";
+import { addMessage } from "@hive/core";
 
 await addMessage(
   threadId: string,
@@ -68,7 +68,7 @@ await addMessage(
 ### getRecentMessages
 
 ```typescript
-import { getRecentMessages } from "@johpaz/hive-core";
+import { getRecentMessages } from "@hive/core";
 
 const messages = await getRecentMessages(threadId, {
   maxTokens: 32000,
@@ -81,7 +81,7 @@ const messages = await getRecentMessages(threadId, {
 Reduce el historial cuando excede el límite de tokens.
 
 ```typescript
-import { maybeCompact } from "@johpaz/hive-core";
+import { maybeCompact } from "@hive/core";
 
 await maybeCompact(threadId, { channel: "slack", userId: "U123" });
 ```
@@ -89,7 +89,7 @@ await maybeCompact(threadId, { channel: "slack", userId: "U123" });
 ### clearOldToolResults
 
 ```typescript
-import { clearOldToolResults } from "@johpaz/hive-core";
+import { clearOldToolResults } from "@hive/core";
 
 const clean = clearOldToolResults(messages);
 ```
@@ -97,7 +97,7 @@ const clean = clearOldToolResults(messages);
 ### ConversationStore
 
 ```typescript
-import { getSummary, saveSummary, getScratchpad, saveScratchpadNote } from "@johpaz/hive-core";
+import { getSummary, saveSummary, getScratchpad, saveScratchpadNote } from "@hive/core";
 
 // Resumen de conversación
 const summary = getSummary(threadId);
@@ -113,8 +113,8 @@ const notes = getScratchpad(threadId, "worker-1");
 Memoria temporal por hilo de conversación.
 
 ```typescript
-import { Scratchpad } from "@johpaz/hive-core";
-import { getDb } from "@johpaz/hive-core";
+import { Scratchpad } from "@hive/core";
+import { getDb } from "@hive/core";
 
 const db = getDb();
 const pad = new Scratchpad(db);
@@ -142,8 +142,8 @@ pad.clear("thread-1");
 Guardián de reglas de calidad de respuesta desde la base de datos.
 
 ```typescript
-import { EthicsGuard } from "@johpaz/hive-core";
-import { getDb } from "@johpaz/hive-core";
+import { EthicsGuard } from "@hive/core";
+import { getDb } from "@hive/core";
 
 const db = getDb();
 const guard = new EthicsGuard(db);
@@ -173,7 +173,7 @@ Sistema de Auto-Corrección por Experiencia.
 ### Tracer
 
 ```typescript
-import { saveTrace, recordLLMUsage } from "@johpaz/hive-core/ace";
+import { saveTrace, recordLLMUsage } from "@hive/core/ace";
 
 // Guardar traza de ejecución
 saveTrace({
@@ -198,7 +198,7 @@ recordLLMUsage({
 ### Reflector + Curator
 
 ```typescript
-import { runReflector, runCurator } from "@johpaz/hive-core/ace";
+import { runReflector, runCurator } from "@hive/core/ace";
 
 // Analizar trazas y generar insights
 await runReflector();
@@ -214,7 +214,7 @@ await runCurator();
 ### Config
 
 ```typescript
-import type { MCPConfig, MCPServerConfig } from "@johpaz/hive-core";
+import type { MCPConfig, MCPServerConfig } from "@hive/core";
 
 const config: MCPConfig = {
   servers: {
@@ -232,7 +232,7 @@ const config: MCPConfig = {
 ### Singleton
 
 ```typescript
-import { setMCPManager, getMCPManager, hasMCPManager } from "@johpaz/hive-core";
+import { setMCPManager, getMCPManager, hasMCPManager } from "@hive/core";
 
 setMCPManager(mcpManager);
 const mcp = getMCPManager();     // MCPClientManager | undefined
@@ -242,7 +242,7 @@ const exists = hasMCPManager();   // boolean
 ### Hot Reload
 
 ```typescript
-import { startMCPHotReload, stopMCPHotReload } from "@johpaz/hive-core";
+import { startMCPHotReload, stopMCPHotReload } from "@hive/core";
 
 // Watch de configuración MCP
 startMCPHotReload();
