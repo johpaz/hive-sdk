@@ -1,4 +1,4 @@
-# 🐝 Hive SDK
+# Hive SDK
 
 <p align="center">
   <img src="https://img.shields.io/badge/Bun-v1.3.13-000000?style=flat&logo=bun" alt="Bun">
@@ -6,320 +6,153 @@
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat">
 </p>
 
-> **¿LangChain es demasiado lento? ¿Node.js te frena?** Hive SDK es la alternativa de alto rendimiento construida nativamente para Bun, con orquestación DAG integrada y ejecución paralela de agentes.
+Framework de agentes AI con Context Engineering, FTS5, ACE y Swarm — construido nativamente para Bun.
 
-## ¿Por qué Hive SDK en lugar de LangChain?
+## Paquetes
 
-| Característica | LangChain | **Hive SDK** |
-|----------------|-----------|--------------|
-| Runtime | Node.js | **Bun (2-3x más rápido)** |
-| Orquestación | LangChain Chains | **DAG Scheduler nativo** |
-| Paralelismo | Sequential/LCEL | **Workers paralelos reales** |
-| Base de datos | Integraciones externas | **SQLite built-in** |
-| Herramientas | Custom | **FTS5 auto-selección** |
-| UI/Visualización | LangGraph (beta) | **Canvas (ACE) incluido** |
-| Channels | Webhooks manuales | **Slack, Discord, Telegram, WhatsApp** |
-| Testing | Jest/Vitest | **Bun native (130+ tests)** |
-
-## 🚀 Performance
-
-```
-LangChain:     ~3000ms (Node.js)
-Hive SDK:      ~950ms  (Bun)        → 3x más rápido
-
-DAG con 20 tareas:
-  LangChain:   ~45s (secuencial)
-  Hive SDK:    ~3s  (paralelo)     → 15x más rápido
-```
+| Paquete | Descripción |
+|---------|-------------|
+| `@hive/core` | Core del framework: agente, tools, skills, MCP, storage, swarm, canvas, ACE |
+| `@hive/cli` | CLI: `hive init`, `hive run`, `hive test`, `hive trace` |
 
 ## Instalación
 
 ```bash
-# Clonar el repositorio
 git clone https://github.com/anomalyco/hive-sdk.git
 cd hive-sdk
-
-# Instalar dependencias (Bun)
 bun install
-
-# ⚠️ IMPORTANTE: Seed de la base de datos
-# Se requiere SQLite/PostgreSQL con tools, skills y agentes seedados
-# El servidor会自动 crea la BD en ./data si no existe
-# Para seed manual: ejecuta el script de seed del paquete storage
 ```
-
-## Requisitos
-
-- **Bun** 1.3.x
-- **SQLite** (incluido con Bun) o **PostgreSQL**
-- **Seed de datos** (tools, skills, modelos)
-
-> El servidor crea la BD automáticamente en `./data`. Para funcionamiento completo, ejecuta el seed de datos del paquete `storage`.
 
 ## Inicio Rápido
 
-### 1. Ejecutar un Agente
-
 ```typescript
-import { runAgent } from "@hive-sdk/agent";
+import { createAgent, defineTool } from "@hive/core";
 
-// Ejecutar agente con streaming
-for await (const chunk of runAgent({
-  agentId: "assistant",
-  userMessage: "Analiza las ventas del mes",
-  threadId: "thread-123",
-})) {
-  if (chunk.agent?.messages) {
-    console.log(chunk.agent.messages[0].content);
-  }
-}
+const myTool = defineTool({
+  name: "saludar",
+  description: "Saluda a alguien",
+  execute: async (args: { nombre: string }) => `¡Hola ${args.nombre}!`,
+});
+
+const agent = await createAgent({
+  name: "asistente",
+  provider: "openai",
+  model: "gpt-4o-mini",
+  tools: [myTool],
+});
+
+const respuesta = await agent.run("Saluda a Juan");
+console.log(respuesta);
 ```
 
-### 2. Crear un Swarm (DAG)
+## Crear un Swarm (DAG)
 
 ```typescript
-import { DAGScheduler, TaskGraph } from "@hive-sdk/scheduler";
+import { DAGScheduler, TaskGraph } from "@hive/core";
 
-// Grafo con dependencias
 const graph = new TaskGraph([
   { id: "fetch", agentId: "fetcher", taskDescription: "Obtener datos", deps: [] },
-  { id: "process", agentId: "processor", taskDescription: "Procesar datos", deps: ["fetch"] },
-  { id: "analyze", agentId: "analyzer", taskDescription: "Analizar", deps: ["process"] },
-  { id: "report", agentId: "reporter", taskDescription: "Generar reporte", deps: ["analyze"] },
+  { id: "process", agentId: "processor", taskDescription: "Procesar", deps: ["fetch"] },
+  { id: "report", agentId: "reporter", taskDescription: "Reportar", deps: ["process"] },
 ]);
 
-const scheduler = new DAGScheduler({
-  maxConcurrentWorkers: 4,
-});
-
-const result = await scheduler.execute(graph);
-
-console.log(`✅ Completado: ${result.completed.length}`);
-console.log(`❌ Fallido: ${result.failed.length}`);
-console.log(`⏱️ Duración: ${result.totalDurationMs}ms`);
+const result = await new DAGScheduler().execute(graph);
 ```
-
-### 3. Integrar con Slack
-
-```typescript
-import { createChannelHandler } from "@hive-sdk/channels";
-import { runAgent } from "@hive-sdk/agent";
-
-const handler = createChannelHandler("slack");
-
-app.post("/webhooks/slack", async (req, res) => {
-  const message = handler.parse(req.body);
-  
-  const response = await runAgent({
-    agentId: "coordinator",
-    userMessage: message.text,
-    threadId: message.threadId,
-  });
-  
-  await handler.reply(message, response);
-  res.status(200).send("OK");
-});
-```
-
-## Características Principales
-
-### 🤖 Agentes Inteligentes
-- **Multi-provider**: OpenAI, Anthropic, Ollama, DeepSeek, Gemini, Groq, Mistral, OpenRouter
-- **Streaming nativo**: Tokens arriving en tiempo real
-- **Contexto persistente**: Historial con compactación automática
-
-### 📊 DAG Scheduler
-- **Ejecución paralela**: Múltiples workers concurrentes
-- **Gestión de dependencias**: Topological sort automático
-- **Estrategias**: FIFO, Priority, Critical Path
-- **Presets**: Research, Pipeline, Parallel
-
-### 🔧 Tools Dinámicas
-- **Selección automática**: FTS5 bm25 scoring
-- **Categorización**: filesystem, web, code, memory, canvas, etc.
-- **Límite adaptativo**: Max 12 tools por turno
-
-### 🎯 Skills
-- **Triggers semánticos**: Activación por palabras clave
-- **Composiciones**: Múltiples tools combinadas
-- **Categorías**: core, research, analytics, codebridge
-
-### 💬 Channels
-- **Slack**, **Discord**, **Telegram**, **WhatsApp**
-- **Webhooks** y **bots** integrados
-- **Múltiples threads** por usuario
-
-### 📈 Canvas (ACE)
-- **Visualización real-time** del estado de agentes
-- **WebSocket** para updates instantáneos
-- **Heartbeat** para detección de desconexiones
-
-### 📦 Storage
-- **SQLite** nativo (bun:sqlite)
-- **FTS5** para búsqueda full-text
-- **Transacciones** atomic
 
 ## Estructura del Proyecto
 
 ```
 hive-sdk/
 ├── packages/
-│   ├── agent/              # Core del agente
-│   │   ├── src/
-│   │   │   ├── agent-loop.ts      # runAgent, runAgentIsolated
-│   │   │   ├── tool-selector.ts   # FTS5 tool selection
-│   │   │   ├── skill-selector.ts  # Skill selection
-│   │   │   ├── context-compiler.ts# Context compilation
-│   │   │   └── llm-providers/     # OpenAI, Anthropic, Ollama...
-│   │   └── test/                  # 130+ tests
+│   ├── core/                   # @hive/core
+│   │   └── src/
+│   │       ├── agent/          # AgentLoop, ContextCompiler, ConversationStore
+│   │       │   ├── providers/  # LLM: OpenAI, Anthropic, Gemini, Ollama
+│   │       │   └── selectors/  # FTS5: ToolSelector, SkillSelector, PlaybookSelector
+│   │       ├── tools/          # ToolRegistry + 66 built-in tools
+│   │       │   ├── filesystem/ web/ projects/ cron/ cli/ agents/
+│   │       │   ├── canvas/ codebridge/ voice/ core/ office/ meeting/
+│   │       │   ├── ToolRegistry.ts   # defineTool()
+│   │       │   └── ToolExecutor.ts
+│   │       ├── skills/         # SkillLoader, defineSkill()
+│   │       ├── swarm/          # DAGScheduler, TaskGraph, WorkerPool
+│   │       │   ├── strategies/ # ParallelStrategy, PriorityStrategy
+│   │       │   └── presets/    # HiveLearnPreset, ResearchPreset
+│   │       ├── mcp/            # MCPClientManager, transports (SSE, WS)
+│   │       ├── storage/        # SQLite (bun:sqlite) + FTS5
+│   │       ├── ace/            # Tracer, Reflector, Curator
+│   │       ├── canvas/         # CanvasManager + A2UI tools
+│   │       ├── memory/         # Scratchpad
+│   │       ├── ethics/         # EthicsGuard
+│   │       ├── config/         # loadConfig, loadEnv
+│   │       ├── utils/          # logger, toon, crypto, retry
+│   │       ├── api/            # createAgent()
+│   │       └── index.ts        # Public API barrel
 │   │
-│   ├── scheduler/           # DAG Scheduler
-│   │   ├── src/
-│   │   │   ├── dag/
-│   │   │   │   ├── DAGScheduler.ts   # Orquestador
-│   │   │   │   ├── TaskGraph.ts       # Grafo de tareas
-│   │   │   │   ├── TaskNode.ts        # Nodo individual
-│   │   │   │   ├── strategies/        # Parallel, Priority
-│   │   │   │   └── presets/           # Research, Pipeline
-│   │   │   └── swarm/           # Workers
-│   │   └── test/
-│   │
-│   ├── events/             # AgentBus
-│   ├── storage/            # SQLite
-│   ├── canvas/             # Canvas (ACE)
-│   ├── gateway/            # Servidor HTTP/WS
-│   └── channels/           # Slack, Discord, etc.
+│   └── cli/                    # @hive/cli
+│       └── src/
+│           ├── index.ts        # Entry: hive {init,run,test,trace}
+│           └── commands/
+│               ├── init.ts     # hive init
+│               ├── run.ts      # hive run
+│               ├── test.ts     # hive test
+│               └── trace.ts    # hive trace
 │
-├── test/
-│   ├── load/               # Tests de carga
-│   ├── stress/             # Tests de stress
-│   └── streaming/          # Benchmarks
+├── test/                       # Test helpers
+│   └── setup-db.ts             # DB preload for tests
 │
-└── docs/                   # Documentación completa
+├── docs/                       # Documentación
+├── tsconfig.json
+└── package.json
 ```
 
-## Benchmarks
+## API Pública
 
-### Time to First Token (TTFT)
-
-| Modelo | TTFT | Categoría |
-|--------|------|-----------|
-| gpt-4o-mini | ~150ms | Rápido |
-| gpt-4o | ~800ms | Balanceado |
-| claude-opus | ~2500ms | Calidad |
-
-### Worker Performance
-
-| Métrica | Valor |
-|---------|-------|
-| Task duration | 30-55ms |
-| Throughput | ~12 tasks/sec |
-| Parallel efficiency | >95% |
-| Swarm coordination | ~16ms |
-
-## Documentación
-
-| Documento | Descripción |
-|-----------|-------------|
-| [docs/README.md](docs/README.md) | Guía completa del usuario |
-| [docs/INDEX.md](docs/INDEX.md) | Índice y referencias |
-| [docs/API-AGENTS.md](docs/API-AGENTS.md) | API de Agentes |
-| [docs/API-DAG-SCHEDULER.md](docs/API-DAG-SCHEDULER.md) | API del DAG |
-| [docs/API-WORKERS-EVENTS.md](docs/API-WORKERS-EVENTS.md) | Workers y Eventos |
-| [docs/API-TOOLS-SKILLS-CHANNELS.md](docs/API-TOOLS-SKILLS-CHANNELS.md) | Tools, Skills, Channels |
-| [docs/API-CONTEXT-COMPILER.md](docs/API-CONTEXT-COMPILER.md) | Context Compiler |
-| [test/BENCHMARKS.md](test/BENCHMARKS.md) | Benchmarks detallados |
+```typescript
+import {
+  createAgent,           // Crear agente con configuración
+  defineTool,            // Definir herramienta
+  defineSkill,           // Definir skill
+  ToolRegistry,          // Registro de herramientas
+  ToolExecutor,          // Ejecutor de herramientas
+  AgentLoop,             // Bucle principal del agente
+  runAgent,              // Ejecutar agente (streaming)
+  runAgentIsolated,      // Ejecutar agente aislado (workers)
+  DAGScheduler,          // Orquestador DAG
+  TaskGraph,             // Grafo de tareas
+  TaskNode,              // Nodo del grafo
+  MCPClientManager,      // Cliente MCP
+  EthicsGuard,           // Guardián ético
+  Scratchpad,            // Memoria temporal
+  SkillLoader,           // Cargador de skills
+  initializeDatabase,    // Inicializar BD
+  loadConfig,            // Cargar configuración
+  logger,                // Logger
+} from "@hive/core";
+```
 
 ## Testing
 
 ```bash
 # Todos los tests
-bun test packages/
+bun test packages/core/src/
 
-# Tests de carga
-bun test test/load/
+# Tests con timeout
+bun test --timeout 30000
 
-# Tests de stress WebSocket
-bun test test/stress/
-
-# Benchmarks streaming
-bun test test/streaming/
-
-# Tests paralelos (recomendado)
-bun test --parallel --isolate
-```
-
-**Resultado**: 130+ tests passing
-
-## Comparativa de APIs
-
-### LangChain vs Hive SDK
-
-```typescript
-// LangChain
-import { ChatOpenAI } from "@langchain/openai";
-import { AgentExecutor } from "langchain/agents";
-
-const model = new ChatOpenAI({ model: "gpt-4" });
-const executor = AgentExecutor.fromAgentAndTools({
-  agent,
-  tools,
-  verbose: true,
-});
-const result = await executor.invoke({ input: "..." });
-
-// Hive SDK
-import { runAgent } from "@hive-sdk/agent";
-
-const result = await runAgent({
-  agentId: "assistant",
-  userMessage: "...",
-  threadId: "...",
-});
-```
-
-```typescript
-// LangChain: DAG con LangGraph (complejo)
-import { createReactAgent } from "@langchain/langgraph-prebuilt";
-import { ToolNode } from "@langchain/langgraph-prebuilt";
-
-const graph = createReactAgent({ llm: model, tools });
-const result = await graph.invoke({ messages: [...] });
-
-// Hive SDK: DAG nativo (simple)
-import { DAGScheduler, TaskGraph } from "@hive-sdk/scheduler";
-
-const graph = new TaskGraph(configs);
-const result = await new DAGScheduler().execute(graph);
+# Tests específicos
+bun test packages/core/src/tools/ToolRegistry.test.ts
 ```
 
 ## Variables de Entorno
 
 ```bash
-# Puerto
-HIVE_PORT=3000
-
-# Directorio de datos
-HIVE_DATA_DIR=./data
-
-# API Keys
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-
-# Logging
-LOG_LEVEL=info
+HIVE_DATA_DIR=./data          # Directorio de datos
+OPENAI_API_KEY=sk-...         # OpenAI
+ANTHROPIC_API_KEY=sk-ant-...  # Anthropic
+LOG_LEVEL=info                 # debug | info | warn | error
 ```
 
 ## Licencia
 
 MIT © 2024 Anomaly Co.
-
----
-
-<p align="center">
-  <strong>¿Necesitas ayuda?</strong><br>
-  <a href="https://github.com/anomalyco/hive-sdk/issues">GitHub Issues</a> •
-  <a href="https://discord.gg/hive-sdk">Discord</a>
-</p>
-
-*Construido con Bun 1.3.13*

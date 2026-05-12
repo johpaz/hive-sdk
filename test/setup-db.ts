@@ -7,7 +7,7 @@
 import { Database } from "bun:sqlite";
 import * as path from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
-import { SCHEMA, PROJECTS_SCHEMA, CONTEXT_ENGINE_SCHEMA, MEETING_SCHEMA } from "@hive-sdk/storage/schema";
+import { SCHEMA, PROJECTS_SCHEMA, CONTEXT_ENGINE_SCHEMA, MEETING_SCHEMA } from "../packages/core/src/storage/schema.ts";
 
 let testDb: Database | null = null;
 

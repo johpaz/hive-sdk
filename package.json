@@ -1,8 +1,8 @@
 {
-  "name": "hive-sdk-workspace",
-  "version": "0.0.14",
-  "private": false,
-  "description": "Hive SDK — Agentes AI de alto rendimiento con orquestación DAG built-in",
+  "name": "hive-sdk",
+  "version": "0.0.15",
+  "private": true,
+  "description": "Hive SDK — Agentes AI con Context Engineering, FTS5, ACE, Swarm",
   "license": "MIT",
   "homepage": "https://github.com/anomalyco/hive-sdk#readme",
   "repository": {
@@ -16,58 +16,41 @@
     "ai",
     "agent",
     "llm",
-    "dag",
-    "orchestration",
+    "context-engineering",
+    "fts5",
+    "swarm",
+    "ace",
     "bun",
     "langchain-alternative"
   ],
-  "main": "./packages/sdk/src/index.ts",
-  "types": "./packages/sdk/src/index.ts",
-  "files": [
-    "packages/*/dist",
-    "packages/*/src/**/*.ts"
-  ],
-  "exclude": [
-    "**/*.test.ts",
-    "**/test/**",
-    "test/**",
-    "docs/**"
-  ],
+  "main": "./packages/core/src/index.ts",
+  "types": "./packages/core/src/index.ts",
   "workspaces": [
-    "packages/*"
+    "packages/core",
+    "packages/cli"
   ],
   "scripts": {
     "build": "bun run typecheck",
     "typecheck": "tsc --build --force",
-    "prepublish": "echo 'No build needed - Bun runs TypeScript directly'",
-    "publish": "npm publish --access public"
+    "test": "bun test",
+    "prepublish": "echo 'No build needed - Bun runs TypeScript directly'"
   },
   "dependencies": {
-    "@ag-ui/core": "^0.0.46",
     "@anthropic-ai/sdk": "^0.74.0",
     "@google/genai": "^1.43.0",
     "@modelcontextprotocol/sdk": "latest",
     "@sapphire/snowflake": "latest",
-    "@slack/bolt": "latest",
-    "@types/jsonwebtoken": "^9.0.10",
-    "@whiskeysockets/baileys": "latest",
     "async-mutex": "^0.5.0",
     "cron-parser": "^5.5.0",
     "croner": "^10.0.1",
-    "discord.js": "latest",
     "docx": "^9.6.1",
-    "grammy": "latest",
     "groq-sdk": "^0.37.0",
-    "isomorphic-git": "^1.37.2",
-    "jsonwebtoken": "^9.0.3",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
     "ollama": "^0.6.3",
     "openai": "^6.18.0",
-    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.6.205",
     "pptxgenjs": "^4.0.1",
-    "qrcode-terminal": "latest",
     "toon-format-parser": "^1.1.0",
     "xlsx": "^0.18.5",
     "zod": "latest"

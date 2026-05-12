@@ -1,0 +1,17 @@
+{
+  "name": "@hive/cli",
+  "version": "0.0.15",
+  "description": "Hive CLI — init, run, test, trace",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "hive": "./src/index.ts"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@hive/core": "workspace:*"
+  }
+}

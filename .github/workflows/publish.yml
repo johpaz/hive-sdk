@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g., 0.0.10)'
-        required: false
+        description: 'Version (e.g., 0.0.15)'
+        required: true
         type: string
 
 permissions:
@@ -18,13 +18,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -37,69 +32,82 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
+      - name: Run tests
+        run: bun test packages/core/src/ --timeout 30000
+
       - name: Configure NPM token
-        run: |
-          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > .npmrc
+        run: echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > .npmrc
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish to NPM (monorepo)
+      - name: Resolve workspace:* deps and publish
         run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          echo "Publishing version: $VERSION"
+
+          # Sync version to all workspace packages
           for pkg in packages/*/package.json; do
             dir=$(dirname "$pkg")
+            node -e "
+              const p = require('./package.json');
+              p.version = '$VERSION';
+              require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2) + '\n');
+            " < "$pkg" > /dev/null
             cd "$dir"
-            npm publish --access public
+            node -e "
+              const p = require('./package.json');
+              p.version = '$VERSION';
+              // Resolve workspace:* deps to actual version
+              if (p.dependencies) {
+                for (const [k, v] of Object.entries(p.dependencies)) {
+                  if (v === 'workspace:*') p.dependencies[k] = '$VERSION';
+                }
+              }
+              require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2) + '\n');
+            "
             cd - > /dev/null
           done
+
+          # Publish in dependency order: core first
+          echo "Publishing @hive/core..."
+          cd packages/core
+          npm publish --access public
+          cd ../..
+
+          echo "Publishing @hive/cli..."
+          cd packages/cli
+          npm publish --access public
+          cd ../..
+
+          # Restore workspace:* deps after publish
+          cd packages/cli
+          node -e "
+            const p = require('./package.json');
+            if (p.dependencies && p.dependencies['@hive/core']) p.dependencies['@hive/core'] = 'workspace:*';
+            require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+          cd ../..
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
-        id: create_release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
-  release:
-    needs: publish
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Create Release Notes
         run: |
-          echo "## Changes in this release" > release-notes.md
-          echo "" >> release-notes.md
-          echo "### Features" >> release-notes.md
-          echo "- DAG Scheduler with parallel execution" >> release-notes.md
-          echo "- Tool selector with FTS5" >> release-notes.md
-          echo "- Skill selector" >> release-notes.md
-          echo "- Canvas (ACE) visualization" >> release-notes.md
-          echo "- Multi-channel support (Slack, Discord, Telegram, WhatsApp)" >> release-notes.md
-          echo "- Context compiler" >> release-notes.md
-          echo "" >> release-notes.md
-          echo "### Performance" >> release-notes.md
-          echo "- 3x faster than LangChain" >> release-notes.md
-          echo "- 130+ passing tests" >> release-notes.md
+          gh release create "${{ github.ref_name }}" \
+            --title "Release ${{ github.ref_name }}" \
+            --notes "## What's New
 
-      - name: Upload Release Notes
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.publish.outputs.upload_url }}
-          asset_path: release-notes.md
-          asset_name: release-notes.md
-          asset_content_type: text/markdown
+- @hive/core v${{ github.ref_name }} — Agent framework with Context Engineering, FTS5, ACE, Swarm
+- @hive/cli v${{ github.ref_name }} — CLI tools: init, run, test, trace
+
+### Breaking Changes
+- Restructured from 24 packages to 3 (@hive/core, @hive/cli)
+- New high-level API: createAgent, defineTool, defineSkill
+- Gateway, channels, TTS moved to hive-app repo
+
+### Changelog
+See [CHANGELOG.md](CHANGELOG.md) for details." \
+            --draft=false
