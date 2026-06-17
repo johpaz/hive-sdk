@@ -1,1 +1,2 @@
-export { sendToUserChannel } from "./channel-notify.ts";
+export { startGateway } from "./server.ts";
+export type { GatewayConfig } from "./server.ts";

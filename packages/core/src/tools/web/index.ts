@@ -7,6 +7,7 @@
 import type { Tool } from "../types.ts";
 import { webSearchTool } from "./web-search.ts";
 import { webFetchTool } from "./web-fetch.ts";
+import { apiRequestTool } from "./api-request.ts";
 import { browserNavigateTool } from "./browser-navigate.ts";
 import { browserScreenshotTool } from "./browser-screenshot.ts";
 import { browserClickTool } from "./browser-click.ts";
@@ -19,6 +20,7 @@ export function createTools(): Tool[] {
   return [
     webSearchTool,
     webFetchTool,
+    apiRequestTool,
     browserNavigateTool,
     browserScreenshotTool,
     browserClickTool,
@@ -31,6 +33,7 @@ export function createTools(): Tool[] {
 
 export * from "./web-search.ts";
 export * from "./web-fetch.ts";
+export * from "./api-request.ts";
 export * from "./browser-navigate.ts";
 export * from "./browser-screenshot.ts";
 export * from "./browser-click.ts";

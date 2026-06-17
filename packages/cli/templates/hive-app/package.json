@@ -1,0 +1,16 @@
+{
+  "name": "{{APP_NAME}}",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/main.ts",
+    "start": "bun run src/main.ts",
+    "build": "bun build src/main.ts --outdir dist --target bun"
+  },
+  "dependencies": {
+    "@johpaz/hive-sdk": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

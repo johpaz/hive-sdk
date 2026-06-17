@@ -37,6 +37,16 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 	await initializeDatabase();
 
 	const coreConfig = await loadConfig();
+
+	// Initialize browser automation (agent-browser) if enabled
+	try {
+		const { initializeBrowserService } = await import("../tools/web/browser-service.ts");
+		const browserService = initializeBrowserService(coreConfig);
+		await browserService.start();
+	} catch (err) {
+		log.warn(`Browser service initialization skipped: ${(err as Error).message}`);
+	}
+
 	const allBuiltInTools = createAllTools(coreConfig);
 
 	const customTools = (config.tools ?? []).map(t => ({

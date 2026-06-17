@@ -1,0 +1,58 @@
+# CI/CD
+.github/
+
+# Git
+.git/
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+build/
+dist/
+*.js.map
+
+# Logs
+logs
+*.log
+npm-debug.log*
+bun-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Bun
+.bun/
+bun.lockb
+
+# TypeScript
+*.tsbuildinfo
+
+# Temporary
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache

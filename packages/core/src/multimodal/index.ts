@@ -1,2 +1,2 @@
-export type { ContentPart, ImageInput, DocumentInput, VisionConfig, MultimodalMessageType } from "./types.ts";
-export { multimodalService } from "./VisionService.ts";
+export type { ContentPart, ImageInput, DocumentInput, VisionConfig, MultimodalMessageType } from "./types"
+export { multimodalService } from "./vision-service"

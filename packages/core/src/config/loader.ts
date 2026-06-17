@@ -116,7 +116,7 @@ const WebConfigSchema = z.object({
 
 const BrowserConfigSchema = z.object({
   enabled: z.boolean().optional(),
-  cdpUrl: z.string().optional(),
+  sessionName: z.string().optional(),
   headless: z.boolean().optional(),
   timeoutMs: z.number().optional(),
 });
@@ -437,7 +437,7 @@ function buildDefaultConfig(): Config {
       },
       browser: {
         enabled: true,
-        cdpUrl: "ws://127.0.0.1:9222",
+        sessionName: "hive",
         headless: true,
         timeoutMs: 30000,
       },

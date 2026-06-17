@@ -2,49 +2,214 @@
 
 ## Índice
 
-1. [Workers](#workers)
-2. [AgentBus](#agentbus)
-3. [EventBus](#eventbus)
-4. [Canvas Events](#canvas-events)
+1. [Bun Workers](#bun-workers)
+2. [createWorker](#createworker)
+3. [WorkerPool](#workerpool)
+4. [AgentBus](#agentbus)
+5. [EventBus](#eventbus)
+6. [Canvas Events](#canvas-events)
 
 ---
 
-## Workers
+## Bun Workers
 
-Los workers ejecutan tareas dentro de un swarm.
+Hive SDK soporta **workers individuales con Bun Workers**. Cada worker corre en un thread aislado (`Bun.Worker` con `{ smol: true }`), con su propio system prompt y configuración.
 
-### AgentExecutor
+### Casos de uso
+
+- **Workers especializados**: Un worker para research, otro para coding, otro para review
+- **Paralelismo**: Ejecutar múltiples tareas simultáneamente sin bloquear el hilo principal
+- **Aislamiento**: Cada worker tiene su propio contexto y no interfere con otros
+
+---
+
+## createWorker
+
+Crea un worker individual con Bun Workers.
+
+### Firma
 
 ```typescript
-import { AgentExecutor } from "@hive/core";
+import { createWorker } from "@johpaz/hive-sdk";
 
-const executor = new AgentExecutor();
-const result = await executor.execute(node, depResults, threadId);
+const worker = createWorker(config: WorkerConfig): WorkerInstance
 ```
 
-### WorkerPool
-
-Pool de workers para ejecución concurrente.
+### WorkerConfig
 
 ```typescript
-import { setSchedulerForCleanup, executeScheduledTask } from "@hive/core/swarm/workers";
-
-// Programar task
-await executeScheduledTask(job);
+interface WorkerConfig {
+  name: string;                    // Identificador del worker
+  agentId?: string;                // ID del agente en DB (default: name)
+  systemPrompt?: string;           // System prompt personalizado
+  model?: string;                  // Modelo LLM
+  provider?: string;               // Provider LLM
+}
 ```
 
-### Worker Custom
+### WorkerInstance
 
 ```typescript
-import type { IAgentExecutor } from "@hive/core";
+interface WorkerInstance {
+  readonly name: string;
+  readonly id: string;
 
-const myWorker: IAgentExecutor = {
-  async execute(node, depResults, threadId) {
-    const context = Object.entries(depResults)
-      .map(([id, r]) => `${id}: ${r}`).join("\n");
-    return await processTask(node.taskDescription, context);
+  // Ejecutar y esperar resultado
+  run(message: string, opts?: {
+    threadId?: string;
+    channel?: string;
+  }): Promise<string>;
+
+  // Streaming de resultados
+  runStream(message: string, opts?: {
+    threadId?: string;
+    channel?: string;
+  }): AsyncGenerator<WorkerChunk>;
+
+  // Terminar el worker
+  terminate(): void;
+}
+```
+
+### Ejemplo básico
+
+```typescript
+import { createWorker } from "@johpaz/hive-sdk";
+
+const researcher = createWorker({
+  name: "researcher",
+  systemPrompt: `
+    You are a research specialist.
+    Provide concise, factual summaries with citations.
+    Always verify facts before presenting them.
+  `,
+});
+
+const result = await researcher.run("Latest advances in quantum computing 2025");
+console.log(result);
+
+researcher.terminate();
+```
+
+### Streaming
+
+```typescript
+const stream = researcher.runStream("Explain quantum entanglement");
+
+for await (const chunk of stream) {
+  if (chunk.type === "chunk") {
+    console.log("Chunk:", chunk.chunk);
+  } else if (chunk.type === "result") {
+    console.log("Final:", chunk.content);
+  } else if (chunk.type === "error") {
+    console.error("Error:", chunk.error);
+  }
+}
+```
+
+---
+
+## WorkerPool
+
+Gestiona un pool de Bun Workers para ejecución paralela.
+
+### Firma
+
+```typescript
+import { WorkerPool } from "@johpaz/hive-sdk";
+
+const pool = new WorkerPool(config?: WorkerPoolConfig);
+```
+
+### WorkerPoolConfig
+
+```typescript
+interface WorkerPoolConfig {
+  maxWorkers?: number;        // Default: 4
+  taskTimeoutMs?: number;     // Default: 120000
+  workerConfig?: WorkerConfig;
+}
+```
+
+### Métodos
+
+```typescript
+// Ejecutar una tarea
+pool.execute(task: PoolTask): Promise<PoolTaskResult>
+
+// Ejecutar múltiples tareas en paralelo
+pool.executeBatch(tasks: PoolTask[]): Promise<PoolTaskResult[]>
+
+// Ejecutar con límite de concurrencia
+pool.executeWithConcurrency(tasks: PoolTask[], concurrency: number): Promise<PoolTaskResult[]>
+
+// Estadísticas
+pool.stats  // { total, busy, idle }
+
+// Cerrar todos los workers
+pool.shutdown(): void
+```
+
+### Ejemplo: Batch processing
+
+```typescript
+import { WorkerPool } from "@johpaz/hive-sdk";
+
+const pool = new WorkerPool({
+  maxWorkers: 4,
+  workerConfig: {
+    name: "analyzer",
+    systemPrompt: "You analyze text and extract key insights.",
   },
-};
+});
+
+const articles = [
+  { id: "a1", message: "Summarize article about AI..." },
+  { id: "a2", message: "Summarize article about climate..." },
+  { id: "a3", message: "Summarize article about space..." },
+];
+
+const results = await pool.executeBatch(articles);
+
+for (const result of results) {
+  console.log(`${result.taskId}: ${result.result} (${result.durationMs}ms)`);
+}
+
+pool.shutdown();
+```
+
+### Ejemplo: Concurrency limit
+
+```typescript
+// Procesar 100 tareas pero solo 5 a la vez
+const tasks = Array.from({ length: 100 }, (_, i) => ({
+  id: `task-${i}`,
+  message: `Process item ${i}`,
+}));
+
+const results = await pool.executeWithConcurrency(tasks, 5);
+```
+
+---
+
+## CLI: hives add-worker
+
+Genera un Bun Worker en tu proyecto:
+
+```bash
+cd my-project
+hives add-worker researcher
+```
+
+Crea `src/workers/researcher.worker.ts`:
+
+```typescript
+import { createWorker } from "@johpaz/hive-sdk";
+
+export const researcherWorker = createWorker({
+  name: "researcher",
+  systemPrompt: `You are the ResearcherWorker specialist...`,
+});
 ```
 
 ---
@@ -54,7 +219,7 @@ const myWorker: IAgentExecutor = {
 Sistema de eventos singleton para comunicación entre agentes.
 
 ```typescript
-import { agentBus, getUnreadMessagesForWorker } from "@hive/core";
+import { agentBus, getUnreadMessagesForWorker } from "@johpaz/hive-sdk";
 
 // Publicar evento
 agentBus.publish("worker:task_started", { taskId: "task-1" }, "worker-1");
@@ -71,15 +236,12 @@ unsub();
 ### Métodos Helper
 
 ```typescript
-import { 
-  getUnreadMessagesForWorker, 
-  getProjectMessageHistory 
-} from "@hive/core";
+import {
+  getUnreadMessagesForWorker,
+  getProjectMessageHistory,
+} from "@johpaz/hive-sdk";
 
-// Mensajes no leídos para un worker
 const messages = getUnreadMessagesForWorker("worker-1");
-
-// Historial de un proyecto
 const history = getProjectMessageHistory("project-1");
 ```
 
@@ -90,7 +252,7 @@ const history = getProjectMessageHistory("project-1");
 EventBus global singleton (eventos del sistema).
 
 ```typescript
-import { eventBus } from "@hive/core";
+import { eventBus } from "@johpaz/hive-sdk";
 
 // Escuchar eventos
 eventBus.on("agent:start", (data) => {
@@ -108,45 +270,30 @@ eventBus.emit("agent:complete", { agentId: "a1", result: "ok" });
 Eventos de actualización visual del canvas.
 
 ```typescript
-import { emitCanvas } from "@hive/core/canvas";
+import { emitCanvas, subscribeCanvas, unsubscribeCanvas } from "@johpaz/hive-sdk";
 
-// Actualizar estado de un nodo
+// Suscribirse a eventos canvas
+const handler = (data: any) => console.log("Canvas:", data);
+subscribeCanvas(handler);
+
+// Emitir evento
 emitCanvas("canvas:node_update", {
   nodeId: "agent-1",
   changes: { status: "thinking" },
 });
 
-// Eventos disponibles
-emitCanvas("canvas:node_update", { nodeId, changes });
-emitCanvas("canvas:graph_update", { graphId, changes });
-emitCanvas("canvas:worker_update", { workerId, changes });
+// Desuscribirse
+unsubscribeCanvas(handler);
 ```
 
 ### CanvasManager
 
 ```typescript
-import { CanvasManager, canvasManager } from "@hive/core/canvas";
+import { CanvasManager } from "@johpaz/hive-sdk";
 
-// Singleton
-const canvas = canvasManager;
-
-// Suscribirse a updates de un nodo
-canvas.subscribe("agent-1", (update) => {
-  console.log("Node update:", update);
-});
+const canvas = new CanvasManager();
 ```
 
-### WebSocket Canvas
+---
 
-```typescript
-// Cliente se conecta
-const ws = new WebSocket("ws://localhost:3000/ws/canvas");
-
-ws.onmessage = (event) => {
-  const update = JSON.parse(event.data);
-  // { type: "node_update", nodeId: "...", changes: {...} }
-};
-
-// Enviar mensaje al agente
-ws.send(JSON.stringify({ type: "user_message", message: "ejecutar tarea" }));
-```
+*Documentación Hive SDK v0.0.17*

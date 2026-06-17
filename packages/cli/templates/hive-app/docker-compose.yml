@@ -1,0 +1,20 @@
+services:
+  app:
+    image: oven/bun:latest
+    working_dir: /app
+    volumes:
+      - .:/app
+      - hive-data:/app/data
+    ports:
+      - "${HIVE_PORT:-18790}:18790"
+    environment:
+      - HIVE_HOST=0.0.0.0
+      - HIVE_PORT=18790
+      - HIVE_DATA_DIR=/app/data
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    command: ["bun", "run", "src/main.ts"]
+    restart: unless-stopped
+
+volumes:
+  hive-data:

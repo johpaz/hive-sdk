@@ -195,7 +195,7 @@ export function insertTestPlaybookRule(overrides: Record<string, any> = {}): num
     overrides.active ?? 1
   );
   
-  return result.lastInsertRowId as number;
+  return result.lastInsertRowid as number;
 }
 
 export function insertTestConversation(threadId: string, role: string, content: string): number {
@@ -212,5 +212,5 @@ export function insertTestConversation(threadId: string, role: string, content: 
     Math.floor(content.length / 4)
   );
   
-  return result.lastInsertRowId as number;
+  return result.lastInsertRowid as number;
 }

@@ -139,6 +139,7 @@ export {
 export {
   webSearchTool,
   webFetchTool,
+  apiRequestTool,
   browserNavigateTool,
   browserScreenshotTool,
   browserClickTool,

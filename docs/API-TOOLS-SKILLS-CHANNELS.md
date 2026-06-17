@@ -1,14 +1,16 @@
-# API Reference — Tools, Skills, MCP y Storage
+# API Reference — Tools, Skills, MCP, Gateway, Channels y Storage
 
 ## Índice
 
 1. [Tools](#tools)
 2. [Skills](#skills)
 3. [MCP](#mcp)
-4. [Canvas](#canvas)
-5. [Storage](#storage)
-6. [Config](#config)
-7. [Gateway (stub)](#gateway)
+4. [Gateway](#gateway)
+5. [Channels](#channels)
+6. [Tool Runtime](#tool-runtime)
+7. [Canvas](#canvas)
+8. [Storage](#storage)
+9. [Config](#config)
 
 ---
 
@@ -19,7 +21,7 @@
 Función para definir herramientas que el agente puede invocar.
 
 ```typescript
-import { defineTool } from "@hive/core";
+import { defineTool } from "@johpaz/hive-sdk";
 
 const tool = defineTool({
   name: "saludar",
@@ -35,25 +37,19 @@ const tool = defineTool({
 Registro central de herramientas.
 
 ```typescript
-import { ToolRegistry, defineTool } from "@hive/core";
+import { ToolRegistry, defineTool } from "@johpaz/hive-sdk";
 
 const reg = new ToolRegistry();
 
-// Registrar
 reg.register(defineTool({ name: "t1", description: "...", execute: async () => ({}) }));
 
-// Consultar
 reg.has("t1");              // true
 reg.get("t1");              // ToolDefinition
-reg.list();                  // ToolDefinition[]
+reg.list();                 // ToolDefinition[]
 reg.getByCategory("web");   // Filtrar por categoría
 reg.getNames();             // ["t1"]
 reg.size();                 // 1
-
-// Merge con otro registry
 reg.merge(otherRegistry);
-
-// Limpiar
 reg.clear();
 ```
 
@@ -62,7 +58,7 @@ reg.clear();
 Ejecutor de herramientas con validación Zod.
 
 ```typescript
-import { ToolRegistry, ToolExecutor, defineTool } from "@hive/core";
+import { ToolRegistry, ToolExecutor, defineTool } from "@johpaz/hive-sdk";
 
 const reg = new ToolRegistry();
 reg.register(defineTool({
@@ -72,28 +68,67 @@ reg.register(defineTool({
 }));
 
 const exec = new ToolExecutor(reg);
-
-// Ejecutar una tool
 const result = await exec.execute("echo", { msg: "hola" });
-// { toolName: "echo", args: { msg: "hola" }, result: { msg: "hola" }, durationMs: 1 }
-
-// Ejecución batch
-const results = await exec.executeBatch([
-  { name: "echo", args: { msg: "a" } },
-  { name: "echo", args: { msg: "b" } },
-]);
 ```
 
 ### Tool Selection (FTS5)
 
 ```typescript
-import { selectTools, CORE_TOOL_CATALOG } from "@hive/core";
+import { selectTools, CORE_TOOL_CATALOG } from "@johpaz/hive-sdk";
 
-// Selección automática por relevancia
 const tools = selectTools("Buscar archivos en el proyecto");
-
-// Filtrar por categoría
 const webTools = tools.filter(t => t.category === "web");
+```
+
+### Built-in Web + API Tools
+
+El SDK expone herramientas web/browser listas para usar:
+
+```typescript
+import {
+  webSearchTool,
+  webFetchTool,
+  apiRequestTool,
+  browserNavigateTool,
+  browserScreenshotTool,
+  browserClickTool,
+  browserTypeTool,
+  browserExtractTool,
+  browserScriptTool,
+  browserWaitTool,
+} from "@johpaz/hive-sdk";
+```
+
+#### Browser automation (agent-browser)
+
+Las herramientas `browser_*` usan [`agent-browser`](https://www.npmjs.com/package/agent-browser), un CLI Rust que gestiona Chrome/Chromium internamente vía CDP. En el primer uso se instala automáticamente en `~/.hive/agent-browser` y se descarga Chrome si es necesario.
+
+```typescript
+import { initializeBrowserService, getBrowserService } from "@johpaz/hive-sdk";
+
+const browserService = initializeBrowserService(config);
+await browserService.start();
+
+const view = await browserService.getView();
+await view.navigate("https://example.com");
+const snapshot = await view.snapshot({ compact: true, depth: 3 });
+```
+
+#### api_request
+
+Conecta APIs REST con autenticación y métodos HTTP:
+
+```typescript
+const result = await apiRequestTool.execute({
+  url: "https://api.example.com/items",
+  method: "POST",
+  headers: { "X-Custom": "value" },
+  body: { name: "example" },
+  auth: { type: "bearer", token: process.env.API_TOKEN! },
+  timeoutMs: 30000,
+});
+
+// Auth soportada: bearer, basic, api_key (header o query)
 ```
 
 ---
@@ -103,7 +138,7 @@ const webTools = tools.filter(t => t.category === "web");
 ### defineSkill
 
 ```typescript
-import { defineSkill } from "@hive/core";
+import { defineSkill } from "@johpaz/hive-sdk";
 
 const skill = defineSkill({
   name: "file-manager",
@@ -119,10 +154,8 @@ const skill = defineSkill({
 
 ### SkillLoader
 
-Carga skills desde archivos YAML o datos bundled.
-
 ```typescript
-import { SkillLoader } from "@hive/core";
+import { SkillLoader } from "@johpaz/hive-sdk";
 
 const loader = new SkillLoader({
   allowBundled: ["file-manager", "web-researcher"],
@@ -133,18 +166,26 @@ const skills = loader.list();
 const skill = loader.get("file-manager");
 ```
 
+### Skills empaquetadas
+
+El SDK incluye skills empaquetadas para casos comunes. Algunas útiles para web y APIs:
+
+- `web_research` — búsqueda y síntesis con `web_search` + `web_fetch`.
+- `web_browser_research` — investigación profunda combinando `web_search` con navegación real (`browser_navigate`, `browser_extract`) para sitios dinámicos.
+- `browser_scrape` — captura de contenido renderizado con screenshots.
+- `browser_automate` — automatización de flujos web (clicks, formularios).
+
 ---
 
 ## MCP
 
-Model Context Protocol — herramientas externas via STDIO/SSE.
+Model Context Protocol — herramientas externas via STDIO/SSE/WebSocket.
 
 ### MCPClientManager
 
 ```typescript
-import { MCPClientManager } from "@hive/core";
+import { MCPClientManager } from "@johpaz/hive-sdk";
 
-// Configurar con servidores
 const mcp = new MCPClientManager({
   servers: {
     "filesystem": {
@@ -161,43 +202,149 @@ const mcp = new MCPClientManager({
   },
 });
 
-// Inicializar y conectar
 await mcp.initialize();
-
-// Obtener tools de servidores MCP
 const tools = mcp.getTools("filesystem");
-
-// Actualizar configuración
-await mcp.updateConfig({ servers: { ... } });
-```
-
-### MCPToolAdapter
-
-Sincroniza tools MCP con la base de datos FTS5.
-
-```typescript
-import { syncMCPToolsToDB, syncMCPToolsToFTS, clearMCPToolsFromDB } from "@hive/core/mcp";
-
-await syncMCPToolsToDB(mcpManager);
-await syncMCPToolsToFTS();
 ```
 
 ### Transports
 
 ```typescript
-import { createTransport, SSETransport, WebSocketTransport } from "@hive/core/mcp/transports";
+import { createTransport, SSETransport, WebSocketTransport } from "@johpaz/hive-sdk";
 
-// STDIO
 const transport = createTransport({
   type: "stdio",
   stdio: { command: "npx", args: ["-y", "server"], env: {} },
 });
+```
 
-// SSE
-const sse = new SSETransport({ url: "https://api.example.com/mcp" });
+---
 
-// WebSocket
-const ws = new WebSocketTransport({ url: "wss://api.example.com/mcp" });
+## Gateway
+
+Servidor HTTP/WebSocket simplificado para exponer el agente como API.
+
+### startGateway
+
+```typescript
+import { startGateway } from "@johpaz/hive-sdk";
+
+const server = await startGateway({
+  host: "127.0.0.1",
+  port: 18790,
+  agentId: "coordinator",
+  mcpManager: null,
+});
+
+console.log(`Gateway at http://127.0.0.1:18790`);
+```
+
+### Endpoints
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/status` | Health check |
+| POST | `/chat` | Chat con el agente |
+| WS | `/ws` | WebSocket streaming |
+
+### Ejemplo: Chat HTTP
+
+```typescript
+const res = await fetch("http://127.0.0.1:18790/chat", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ message: "Hello!", threadId: "t1" }),
+});
+
+const data = await res.json();
+console.log(data.response);
+```
+
+---
+
+## Channels
+
+Integraciones con plataformas de mensajería.
+
+### ChannelManager
+
+```typescript
+import { ChannelManager } from "@johpaz/hive-sdk";
+
+const manager = new ChannelManager(config);
+await manager.initialize();
+```
+
+### Canales soportados
+
+```typescript
+import {
+  TelegramChannel,
+  DiscordChannel,
+  WhatsAppChannel,
+  SlackChannel,
+  WebChatChannel,
+} from "@johpaz/hive-sdk";
+
+// Telegram
+const telegram = new TelegramChannel({ botToken: process.env.TELEGRAM_BOT_TOKEN! });
+
+// Discord
+const discord = new DiscordChannel({ botToken: process.env.DISCORD_BOT_TOKEN! });
+
+// WhatsApp
+const whatsapp = new WhatsAppChannel();
+
+// Slack
+const slack = new SlackChannel({ botToken: process.env.SLACK_BOT_TOKEN! });
+
+// Webchat
+const webchat = new WebChatChannel();
+```
+
+---
+
+## Tool Runtime
+
+Ejecución paralela de herramientas vía Bun Workers.
+
+### executeToolBatch
+
+```typescript
+import { executeToolBatch, shutdownToolRuntime } from "@johpaz/hive-sdk";
+
+const results = await executeToolBatch({
+  toolCalls: [
+    { id: "1", function: { name: "search", arguments: JSON.stringify({ q: "AI" }) } },
+    { id: "2", function: { name: "fetch", arguments: JSON.stringify({ url: "..." }) } },
+  ],
+  allTools: [searchTool, fetchTool],
+  toolConfig: { user_id: "u1", thread_id: "t1" },
+  hiveConfig: loadConfig(),
+  workerPool: {
+    enabled: true,
+    maxWorkers: 4,
+    toolTimeoutMs: 30000,
+    parallelToolCalls: true,
+  },
+});
+
+// Limpieza
+shutdownToolRuntime();
+```
+
+### ToolBatchResult
+
+```typescript
+interface ToolBatchResult {
+  toolCall: ToolCallLike;
+  toolName: string;
+  result: unknown;
+  ok: boolean;
+  durationMs: number;
+  error?: SerializedError;
+  timedOut?: boolean;
+  aborted?: boolean;
+}
 ```
 
 ---
@@ -207,28 +354,17 @@ const ws = new WebSocketTransport({ url: "wss://api.example.com/mcp" });
 Visualización en tiempo real del estado de agentes.
 
 ```typescript
-import { CanvasManager, canvasManager, emitCanvas } from "@hive/core/canvas";
+import { emitCanvas, subscribeCanvas, unsubscribeCanvas } from "@johpaz/hive-sdk";
 
-// Singleton
-canvasManager.subscribe("agent-1", (update) => {
-  console.log("Estado:", update.changes.status);
-});
+const handler = (data: any) => console.log("Canvas:", data);
+subscribeCanvas(handler);
 
-// Emitir eventos
 emitCanvas("canvas:node_update", {
   nodeId: "agent-1",
   changes: { status: "running", currentTool: "web_search" },
 });
-```
 
-### A2UI Tools
-
-```typescript
-import { createA2UISurfaceTool, createA2UIUpdateComponentsTool } from "@hive/core/canvas";
-
-// Crear tools A2UI para UI generada por agentes
-const surfaceTool = createA2UISurfaceTool();
-const updateTool = createA2UIUpdateComponentsTool();
+unsubscribeCanvas(handler);
 ```
 
 ---
@@ -238,29 +374,20 @@ const updateTool = createA2UIUpdateComponentsTool();
 Base de datos SQLite con FTS5.
 
 ```typescript
-import { initializeDatabase, getDb, dbService } from "@hive/core";
+import { initializeDatabase, dbService } from "@johpaz/hive-sdk";
 
-// Inicializar (crea tablas si no existen)
 await initializeDatabase();
+const db = getTestDb();
 
-// Obtener instancia DB
-const db = getDb();
-
-// Queries
 const results = db.query("SELECT * FROM agents WHERE id = ?").all(agentId);
 const single = db.query("SELECT * FROM agents WHERE id = ?").get(agentId);
 
-// Insert/Update
-db.query("INSERT INTO agents (id, name) VALUES (?, ?)").run("a1", "Agent 1");
-
-// Cerrar
 dbService.close();
 ```
 
 ### Schemas FTS5
 
 ```sql
--- 4 tablas virtuales FTS5 para búsqueda full-text
 CREATE VIRTUAL TABLE playbook_fts USING fts5(rule, category, applicable_to);
 CREATE VIRTUAL TABLE tools_fts USING fts5(tool_name, name, description, category);
 CREATE VIRTUAL TABLE skills_fts USING fts5(id, name, description, category, tools, triggers, body);
@@ -272,22 +399,12 @@ CREATE VIRTUAL TABLE mcp_tools_fts USING fts5(id, name, description, category);
 ## Config
 
 ```typescript
-import { loadConfig, loadEnv, getHiveDir } from "@hive/core";
+import { loadConfig, loadEnv, getHiveDir } from "@johpaz/hive-sdk";
 
 const config = await loadConfig();
-// { HIVE_DATA_DIR: "./data", LOG_LEVEL: "info", ... }
-
 const hiveDir = getHiveDir();  // ~/.hive o HIVE_DATA_DIR
 ```
 
 ---
 
-## Gateway (stub)
-
-```typescript
-import { sendToUserChannel } from "@hive/core/gateway";
-
-// Stub — logs al console, retorna { ok: true }
-// Reemplazar cuando se integre con un sistema de notificaciones real
-const result = await sendToUserChannel("cli:user-1", "user-1", "Hello!");
-```
+*Documentación Hive SDK v0.0.17*

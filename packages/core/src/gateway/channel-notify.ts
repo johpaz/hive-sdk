@@ -1,12 +1,37 @@
-import { logger } from "../utils/logger.ts";
+/**
+ * Channel Notify — stub for SDK compatibility.
+ * In the full harness this sends messages back to channels.
+ */
 
-const log = logger.child("channel-notify");
+export async function notifyChannel(
+  channel: string,
+  userId: string,
+  message: string,
+  opts?: { threadId?: string; metadata?: Record<string, unknown> }
+): Promise<void> {
+  // TODO: integrate with ChannelManager for full functionality
+  console.log(`[channel-notify] ${channel}: ${message}`);
+}
 
 export async function sendToUserChannel(
-	channel: string,
-	userId: string,
-	message: string,
+  channel: string,
+  userId: string,
+  message: string,
+  opts?: { threadId?: string; metadata?: Record<string, unknown> }
 ): Promise<{ ok: boolean; error?: string }> {
-	log.info(`[stub] channel=${channel} userId=${userId} msg=${message.substring(0, 80)}`);
-	return { ok: true };
+  try {
+    await notifyChannel(channel, userId, message, opts);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+export async function broadcastNotification(
+  channels: string[],
+  message: string
+): Promise<void> {
+  for (const channel of channels) {
+    await notifyChannel(channel, "", message);
+  }
 }

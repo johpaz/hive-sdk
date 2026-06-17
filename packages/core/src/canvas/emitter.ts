@@ -1,4 +1,4 @@
-import { getDb } from "../storage/SQLiteStorage.ts"
+import { getDb } from "../storage/SQLiteStorage"
 
 export interface CanvasEvent {
   type: CanvasEventType

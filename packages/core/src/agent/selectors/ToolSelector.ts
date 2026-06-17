@@ -147,6 +147,7 @@ export const CORE_TOOL_CATALOG: ToolDescriptor[] = [
     // Web tools
     { name: "web_search", description: "Search web for current information, find up-to-date news facts and research. Spanish keywords: buscar en internet, buscar web, información, noticias, investigación, buscar", category: "web", abstractionLevel: "atomic" },
     { name: "web_fetch", description: "Fetch content from URL, download and extract content from web pages. Spanish keywords: obtener página, descargar web, extraer contenido, obtener contenido, página web", category: "web", abstractionLevel: "atomic" },
+    { name: "api_request", description: "Connect to REST APIs, make HTTP requests with authentication and custom headers. Spanish keywords: conectar api, peticion http, llamada api, rest api, endpoint, bearer token, api key, basic auth", category: "web", abstractionLevel: "atomic" },
 
     // Memory tools
     { name: "memory_write", description: "Store in long-term memory, save information to persistent memory for later retrieval. Spanish keywords: guardar memoria, guardar información, recordar, guardar dato, memoria", category: "memory", abstractionLevel: "atomic" },

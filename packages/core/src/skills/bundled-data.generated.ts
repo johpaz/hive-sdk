@@ -341,6 +341,56 @@ Esta skill se activa para automatizar flujos de interacción con aplicaciones we
 `,
   },
   {
+    name: "web_browser_research",
+    description: `Search the web and navigate results with a real browser to extract content from dynamic or JavaScript-heavy sites`,
+    category: "web",
+    version: "1.0.0",
+    tools: ["web_search","browser_navigate","browser_extract","web_fetch"],
+    triggers: ["investigá en web con navegador","web browser research","buscá y navegá","search and browse","research with browser","navegá los resultados","browse search results","contenido dinámico","dynamic content research","sitios con javascript","javascript sites research"],
+    body: `
+# Web Browser Research Skill
+
+## Cuándo se Activa
+
+Esta skill se activa cuando el usuario necesita investigación web profunda, especialmente cuando:
+- Los resultados de búsqueda pueden requerir navegación real por sitios dinámicos.
+- El contenido objetivo está renderizado con JavaScript (SPAs, dashboards, etc.).
+- Se necesita extraer datos estructurados de páginas web.
+
+## Herramientas Disponibles
+
+| Tool | Qué hace | Cuándo usarla |
+|------|----------|---------------|
+| \`web_search\` | Busca en internet y devuelve resultados | Encontrar URLs relevantes |
+| \`browser_navigate\` | Navega y renderiza la página completa | Sitios dinámicos con JavaScript |
+| \`browser_extract\` | Extrae datos con selectores CSS/XPath | Obtener contenido estructurado |
+| \`web_fetch\` | Descarga contenido estático | Páginas simples o respaldo |
+
+## Workflow
+
+1. **Buscar** → \`web_search({ query, numResults: 5 })\`
+2. **Seleccionar fuentes** → Elegir 2-3 URLs relevantes y confiables.
+3. **Navegar** → \`browser_navigate({ url })\` para cada fuente dinámica.
+4. **Extraer** → \`browser_extract({ selector: "article, .content, main" })\` o similar.
+5. **Respaldo estático** → Si el browser falla, usar \`web_fetch({ url })\`.
+6. **Sintetizar** → Responder con puntos clave y citas con URLs completas.
+
+## Mejores Prácticas
+
+- Priorizar sitios oficiales, documentación y fuentes primarias.
+- Usar selectores estables (etiquetas semánticas como \`article\`, \`main\`).
+- Si el contenido es largo, extraer por secciones.
+- Siempre incluir URLs de fuentes en la respuesta final.
+
+## Errores a Evitar
+
+- ❌ Usar solo \`web_fetch\` para SPAs sin probar el browser primero.
+- ❌ Seleccionar selectores frágiles basados en clases aleatorias.
+- ❌ No citar las fuentes usadas.
+- ❌ Confundir snippets de búsqueda con contenido completo verificado.
+`,
+  },
+  {
     name: "project_planner",
     description: `Create comprehensive projects with structured tasks and worker assignments`,
     category: "projects",
