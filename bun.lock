@@ -27,6 +27,7 @@
         "pdf-lib": "^1.17.1",
         "pdfjs-dist": "^5.6.205",
         "pptxgenjs": "^4.0.1",
+        "qrcode-terminal": "latest",
         "toon-format-parser": "^1.1.0",
         "xlsx": "^0.18.5",
         "zod": "latest",
@@ -73,6 +74,7 @@
         "pdf-lib": "^1.17.1",
         "pdfjs-dist": "^5.6.205",
         "pptxgenjs": "^4.0.1",
+        "qrcode-terminal": "latest",
         "toon-format-parser": "^1.1.0",
         "xlsx": "^0.18.5",
         "zod": "latest",
@@ -655,6 +657,8 @@
     "proxy-addr": ["proxy-addr@2.0.7", "", { "dependencies": { "forwarded": "0.2.0", "ipaddr.js": "1.9.1" } }, "sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg=="],
 
     "qified": ["qified@0.10.1", "", { "dependencies": { "hookified": "^2.1.1" } }, "sha512-+Owyggi9IxT1ePKGafcI87ubSmxol6smwJ+RAHDQlx9+9cPwFWDiKFFCPuWhr9ignlGpZ9vDQLw67N4dcTVFEA=="],
+
+    "qrcode-terminal": ["qrcode-terminal@0.12.0", "", { "bin": { "qrcode-terminal": "./bin/qrcode-terminal.js" } }, "sha512-EXtzRZmC+YGmGlDFbXKxQiMZNwCLEO6BANKXG4iCtSIM0yqc/pappSx3RIKr4r0uh5JsBckOXeKrB3Iz7mdQpQ=="],
 
     "qs": ["qs@6.15.1", "", { "dependencies": { "side-channel": "^1.1.0" } }, "sha512-6YHEFRL9mfgcAvql/XhwTvf5jKcOiiupt2FiJxHkiX1z4j7WL8J/jRHYLluORvc1XxB5rV20KoeK00gVJamspg=="],
 
