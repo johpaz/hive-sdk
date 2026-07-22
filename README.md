@@ -1,80 +1,74 @@
-# Hive SDK
+# Documentación — Hive SDK
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Bun-v1.3.13-000000?style=flat&logo=bun" alt="Bun">
-  <img src="https://img.shields.io/badge/TypeScript-6.0-blue?style=flat&logo=typescript">
-  <img src="https://img.shields.io/badge/License-MIT-green?style=flat">
-</p>
+> **Hive Agent Harness SDK** — Build, deploy, and scale AI agent applications with multi-channel support, Bun Workers, and swarm orchestration.
 
-**The Hive Agent Harness SDK** — Build, deploy, and scale AI agent applications with multi-channel support, context engineering, and swarm orchestration.
+## Documentos
 
-> This Hive SDK powers the [Hive Harness](https://github.com/johpaz/hive-skd). Use it to create your own harness instances without building everything from scratch.
+| Documento | Descripción |
+|-----------|-------------|
+| [API-AGENTS.md](docs/API-AGENTS.md) | createAgent, AgentLoop, Tool/Skill Selector, LLM Providers |
+| [API-DAG-SCHEDULER.md](docs/API-DAG-SCHEDULER.md) | DAGScheduler, TaskGraph, TaskNode, Estrategias, Presets |
+| [API-WORKERS-EVENTS.md](docs/API-WORKERS-EVENTS.md) | **Bun Workers**, createWorker, WorkerPool, AgentBus, EventBus, Canvas |
+| [API-TOOLS-SKILLS-CHANNELS.md](docs/API-TOOLS-SKILLS-CHANNELS.md) | Tools, Skills, MCP, **Gateway**, **Channels**, **Tool Runtime**, Storage |
+| [API-CONTEXT-COMPILER.md](docs/API-CONTEXT-COMPILER.md) | Context Compiler, Message History, Scratchpad, EthicsGuard, ACE |
+| [TEMPLATE-HIVE-APP.md](docs/TEMPLATE-HIVE-APP.md) | **Template hive-app** — estructura, opciones, personalización |
 
----
+## ¿Qué es Hive SDK?
 
-## Paquetes
+**Hive SDK es un Agent Harness**: un marco de trabajo completo para construir, desplegar y escalar aplicaciones de agentes de IA. A diferencia de un simple wrapper de LLM, un *harness* provee todo lo necesario para que un agente opere en producción:
 
-| Paquete | Descripción |
-|---------|-------------|
-| `@johpaz/hive-sdk` | Core SDK + CLI — agents, tools, skills, MCP, storage, swarm, gateway, channels |
+- **Agentes**: ciclo ReAct, selección dinámica de tools/skills vía FTS5, múltiples providers (OpenAI, Anthropic, Gemini, Ollama).
+- **Tools**: 70+ tools incluidas — filesystem, web search, browser automation (`agent-browser`), APIs (`api_request`), canvas, voz, office, cron.
+- **Skills**: workflows reutilizables con `defineSkill` y `SkillLoader`.
+- **Canales**: Telegram, Discord, WhatsApp, Slack y WebChat con `ChannelManager`.
+- **Swarm**: orquestación multi-agente con `DAGScheduler`, `TaskGraph` y `WorkerPool`.
+- **Runtime**: ejecución paralela de tools vía Bun Workers.
+- **Gateway**: servidor HTTP/WebSocket para exponer agentes como API.
+- **Memoria y estado**: SQLite + FTS5, scratchpad, context compiler.
+
+Con Hive SDK no montas un agente desde cero: **enganchas tu lógica de negocio en un harness ya armado**.
 
 ## Instalación
 
 ```bash
-# Install globally for the CLI
+# Instalar globalmente para el CLI
 bun install -g @johpaz/hive-sdk
 
-# Or in a project
+# O en un proyecto
 bun add @johpaz/hive-sdk
 ```
 
 ## CLI Commands
 
-### Create a full harness application
+```bash
+hives init <name>         # Inicializar proyecto agente
+hives create-app <name>   # Crear aplicación harness completa
+hives add-tool <name>     # Añadir tool
+hives add-skill <name>    # Añadir skill
+hives add-worker <name>   # Añadir Bun Worker
+hives run                 # Ejecutar agente
+hives test                # Test tools/skills
+hives trace               # Ver logs de ejecución
+```
+
+## Inicio Rápido
+
+### 1. Crear una app harness completa
 
 ```bash
 hives create-app my-hive
-```
-
-Generates a complete Hive harness with gateway, channels, and agent configuration.
-
-### Create a lightweight agent project
-
-```bash
-hives init my-agent
-```
-
-### Add a tool to your project
-
-```bash
 cd my-hive
-hives add-tool search-docs
+bun install
+cp .env.example .env
+bun run dev
 ```
 
-### Add a skill to your project
-
-```bash
-cd my-hive
-hives add-skill onboarding
-```
-
-### Run your agent
-
-```bash
-cd my-agent
-hives run
-```
-
----
-
-## Inicio Rápido — Programmatic API
-
-### Create an Agent
+### 2. Crear un agente simple
 
 ```typescript
 import { createAgent, defineTool } from "@johpaz/hive-sdk";
 
-const myTool = defineTool({
+const tool = defineTool({
   name: "saludar",
   description: "Saluda a alguien",
   execute: async (args: { nombre: string }) => `¡Hola ${args.nombre}!`,
@@ -84,25 +78,50 @@ const agent = await createAgent({
   name: "asistente",
   provider: "openai",
   model: "gpt-4o-mini",
-  tools: [myTool],
+  tools: [tool],
 });
 
 const respuesta = await agent.run("Saluda a Juan");
 console.log(respuesta);
 ```
 
-### Start a Gateway
+### 3. Crear un worker especializado
 
 ```typescript
-import { startGateway, createAgent, initializeDatabase } from "@johpaz/hive-sdk";
+import { createWorker } from "@johpaz/hive-sdk";
 
-await initializeDatabase();
-
-const agent = await createAgent({
-  name: "coordinator",
-  provider: "openai",
-  model: "gpt-4o-mini",
+const researcher = createWorker({
+  name: "researcher",
+  systemPrompt: "You are a research specialist. Provide concise, factual summaries.",
 });
+
+const result = await researcher.run("Research quantum computing advances");
+console.log(result);
+researcher.terminate();
+```
+
+### 4. Ejecutar workers en paralelo
+
+```typescript
+import { WorkerPool } from "@johpaz/hive-sdk";
+
+const pool = new WorkerPool({ maxWorkers: 4 });
+
+const tasks = [
+  { id: "t1", message: "Summarize article A" },
+  { id: "t2", message: "Summarize article B" },
+  { id: "t3", message: "Summarize article C" },
+];
+
+const results = await pool.executeBatch(tasks);
+console.log(results);
+pool.shutdown();
+```
+
+### 5. Gateway HTTP/WebSocket
+
+```typescript
+import { startGateway } from "@johpaz/hive-sdk";
 
 const server = await startGateway({
   host: "127.0.0.1",
@@ -110,171 +129,32 @@ const server = await startGateway({
   agentId: "coordinator",
 });
 
-console.log(`Gateway running at http://127.0.0.1:18790`);
+console.log(`Gateway at http://127.0.0.1:18790`);
 ```
-
-### Create a Swarm (DAG)
-
-```typescript
-import { DAGScheduler, TaskGraph } from "@johpaz/hive-sdk";
-
-const graph = new TaskGraph([
-  { id: "fetch", agentId: "fetcher", taskDescription: "Obtener datos", deps: [] },
-  { id: "process", agentId: "processor", taskDescription: "Procesar", deps: ["fetch"] },
-  { id: "report", agentId: "reporter", taskDescription: "Reportar", deps: ["process"] },
-]);
-
-const result = await new DAGScheduler().execute(graph);
-```
-
-### Multi-Channel Bot
-
-```typescript
-import { ChannelManager, TelegramChannel, DiscordChannel } from "@johpaz/hive-sdk";
-
-const manager = new ChannelManager();
-
-manager.register("telegram", new TelegramChannel({ botToken: process.env.TELEGRAM_BOT_TOKEN! }));
-manager.register("discord", new DiscordChannel({ botToken: process.env.DISCORD_BOT_TOKEN! }));
-
-await manager.startAll();
-```
-
----
-
-## Estructura del Proyecto (SDK)
-
-```
-hive-sdk/
-├── packages/
-│   ├── core/                   # @johpaz/hive-sdk core
-│   │   └── src/
-│   │       ├── api/            # createAgent(), Agent interface
-│   │       ├── agent/          # AgentLoop, ContextCompiler, ConversationStore
-│   │       │   ├── providers/  # LLM: OpenAI, Anthropic, Gemini, Ollama
-│   │       │   └── selectors/  # FTS5: ToolSelector, SkillSelector, PlaybookSelector
-│   │       ├── tools/          # ToolRegistry + 70+ built-in tools
-│   │       ├── skills/         # SkillLoader, defineSkill()
-│   │       ├── swarm/          # DAGScheduler, TaskGraph, WorkerPool
-│   │       ├── gateway/        # HTTP/WebSocket server (Bun.serve)
-│   │       ├── channels/       # Telegram, Discord, WhatsApp, Slack, Webchat
-│   │       ├── mcp/            # MCPClientManager, transports (SSE, WS)
-│   │       ├── storage/        # SQLite (bun:sqlite) + FTS5
-│   │       ├── canvas/         # CanvasManager + A2UI emitter
-│   │       ├── scheduler/      # CronScheduler + DAG execution
-│   │       ├── ethics/         # EthicsGuard
-│   │       ├── memory/         # Scratchpad
-│   │       ├── config/         # loadConfig, loadEnv
-│   │       ├── utils/          # logger, toon, crypto, retry
-│   │       └── index.ts        # Public API barrel
-│   │
-│   └── cli/                    # Hive CLI
-│       └── src/
-│           ├── index.ts        # Entry: hive {init,create-app,add-tool,add-skill,run,test,trace}
-│           ├── commands/
-│           │   ├── init.ts
-│           │   ├── create-app.ts
-│           │   ├── add-tool.ts
-│           │   ├── add-skill.ts
-│           │   ├── run.ts
-│           │   ├── test.ts
-│           │   └── trace.ts
-│           └── templates/
-│               └── hive-app/   # Full harness template
-│                   ├── package.json
-│                   ├── hive.config.ts
-│                   ├── docker-compose.yml
-│                   ├── .env.example
-│                   └── src/
-│                       ├── main.ts
-│                       └── agents/
-│                           └── coordinator.ts
-│
-├── test/                       # Test helpers
-├── docs/                       # Documentation
-├── tsconfig.json
-└── package.json
-```
-
----
-
-## API Pública
-
-```typescript
-import {
-  // Agent
-  createAgent,
-  defineTool,
-  defineSkill,
-  runAgent,
-  runAgentIsolated,
-
-  // Gateway
-  startGateway,
-
-  // Channels
-  ChannelManager,
-  TelegramChannel,
-  DiscordChannel,
-  WhatsAppChannel,
-  SlackChannel,
-  WebChatChannel,
-
-  // Swarm
-  DAGScheduler,
-  TaskGraph,
-  TaskNode,
-
-  // MCP
-  MCPClientManager,
-
-  // Tools
-  ToolRegistry,
-  ToolExecutor,
-  executeToolBatch,
-
-  // Storage
-  initializeDatabase,
-
-  // Config
-  loadConfig,
-
-  // Utils
-  logger,
-  retry,
-} from "@johpaz/hive-sdk";
-```
-
----
-
-## Testing
-
-```bash
-# All tests
-bun test packages/core/src/
-
-# Tests with timeout
-bun test --timeout 30000
-
-# Specific tests
-bun test packages/core/src/tools/ToolRegistry.test.ts
-```
-
----
 
 ## Variables de Entorno
 
 ```bash
-HIVE_DATA_DIR=./data          # Directorio de datos
+HIVE_DATA_DIR=./data          # Directorio de datos SQLite
 HIVE_HOST=127.0.0.1           # Gateway host
 HIVE_PORT=18790               # Gateway port
 OPENAI_API_KEY=sk-...         # OpenAI
 ANTHROPIC_API_KEY=sk-ant-...  # Anthropic
+GOOGLE_API_KEY=...            # Gemini
 LOG_LEVEL=info                # debug | info | warn | error
 ```
 
----
+## Tests
 
-## Licencia
+```bash
+# Todos los tests (paralelo)
+bun test
 
-MIT © 2024-2025 johpaz
+# Tests con timeout extendido
+bun test --timeout 60000
+```
+
+
+
+
+*Documentación Hive SDK v0.0.18*
