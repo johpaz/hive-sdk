@@ -212,33 +212,43 @@ export function saveSummary(
   `).run(threadId, summary, messagesCovered, lastMessageId)
 }
 
+import { getHiveDB } from "../storage/HiveDBStorage.ts";
+
+interface ScratchpadDoc {
+  threadId: string;
+  key: string;
+  value: string;
+  updatedAt: number;
+}
+
+function scratchpadDocId(threadId: string, key: string): string {
+  return `${threadId}:${key}`;
+}
+
 // ─── Scratchpad ───────────────────────────────────────────────────────────────
 
-export function saveScratchpadNote(
+export async function saveScratchpadNote(
   threadId: string,
   key: string,
   value: string,
-  source?: string
-): void {
-  const db = getDb()
-  db.query(`
-    INSERT INTO scratchpad (thread_id, key, value, source)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(thread_id, key) DO UPDATE SET
-      value      = excluded.value,
-      source     = excluded.source,
-      updated_at = unixepoch()
-  `).run(threadId, key, value, source ?? null)
+  _source?: string
+): Promise<void> {
+  const db = await getHiveDB();
+  const col = db.collection<ScratchpadDoc>("scratchpad");
+  await col.put(scratchpadDocId(threadId, key), { threadId, key, value, updatedAt: Date.now() });
 }
 
-export function getScratchpad(threadId: string): Array<{ key: string; value: string }> {
-  const db = getDb()
-  return db.query(
-    "SELECT key, value FROM scratchpad WHERE thread_id = ? ORDER BY updated_at DESC"
-  ).all(threadId) as Array<{ key: string; value: string }>
+export async function getScratchpad(threadId: string): Promise<Array<{ key: string; value: string }>> {
+  const db = await getHiveDB();
+  const col = db.collection<ScratchpadDoc>("scratchpad");
+  const entries = await col.scan();
+  return entries
+    .filter(e => e.doc.threadId === threadId)
+    .map(e => ({ key: e.doc.key, value: e.doc.value }));
 }
 
-export function deleteScratchpadNote(threadId: string, key: string): void {
-  const db = getDb()
-  db.query("DELETE FROM scratchpad WHERE thread_id = ? AND key = ?").run(threadId, key)
+export async function deleteScratchpadNote(threadId: string, key: string): Promise<void> {
+  const db = await getHiveDB();
+  const col = db.collection<ScratchpadDoc>("scratchpad");
+  await col.delete(scratchpadDocId(threadId, key));
 }

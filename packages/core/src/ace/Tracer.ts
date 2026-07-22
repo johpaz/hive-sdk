@@ -89,7 +89,7 @@ export function recordLLMUsage(opts: {
   Promise.resolve().then(async () => {
     try {
       const { recordUsage } = await import("../storage/usage.ts")
-      recordUsage({
+      await recordUsage({
         provider: opts.provider,
         model: opts.model,
         inputTokens: opts.inputTokens,

@@ -6,6 +6,8 @@
 
 import type { Tool } from "../types.ts";
 import { getDb } from "../../storage/SQLiteStorage.ts";
+import { getHiveDB } from "../../storage/HiveDBStorage.ts";
+import type { HiveModelDoc, HiveProviderDoc, HiveAgentDoc } from "../../storage/hiveSeed.ts";
 import { logger } from "../../utils/logger.ts";
 import { agentBus } from "../../swarm/AgentBus.ts";
 import { emitCanvas } from "../../canvas/emitter.ts";
@@ -26,15 +28,15 @@ export const memoryWriteTool: Tool = {
     required: ["title", "content"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = getDb();
+    const db = await getHiveDB();
     const title = params.title as string;
     const content = params.content as string;
 
     try {
-      db.query(`
-        INSERT OR REPLACE INTO notes (id, title, content, createdAt, updatedAt)
-        VALUES (lower(hex(randomblob(16))), ?, ?, unixepoch(), unixepoch())
-      `).run(title, content);
+      const notesCol = db.collection<{ title: string; content: string; createdAt: number; updatedAt: number }>("notes");
+      const id = crypto.randomUUID();
+      const now = Date.now();
+      await notesCol.put(id, { title, content, createdAt: now, updatedAt: now });
 
       return { ok: true, title, message: "Memory saved." };
     } catch (error) {
@@ -56,11 +58,13 @@ export const memoryReadTool: Tool = {
     required: ["title"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = getDb();
+    const db = await getHiveDB();
     const title = params.title as string;
 
     try {
-      const note = db.query<any, [string]>("SELECT * FROM notes WHERE title = ?").get(title);
+      const notesCol = db.collection<{ title: string; content: string; createdAt: number; updatedAt: number }>("notes");
+      const entries = await notesCol.scan();
+      const note = entries.find(e => e.doc.title === title)?.doc;
 
       if (!note) {
         return { ok: false, error: `Memory not found: ${title}` };
@@ -70,8 +74,8 @@ export const memoryReadTool: Tool = {
         ok: true,
         title: note.title,
         content: note.content,
-        createdAt: new Date(note.createdAt * 1000).toISOString(),
-        updatedAt: new Date(note.updatedAt * 1000).toISOString(),
+        createdAt: new Date(note.createdAt).toISOString(),
+        updatedAt: new Date(note.updatedAt).toISOString(),
       };
     } catch (error) {
       return { ok: false, error: `Failed to read memory: ${(error as Error).message}` };
@@ -89,15 +93,19 @@ export const memoryListTool: Tool = {
     properties: {},
   },
   execute: async () => {
-    const db = getDb();
+    const db = await getHiveDB();
 
     try {
-      const notes = db.query("SELECT id, title, createdAt FROM notes ORDER BY updatedAt DESC").all() as any[];
+      const notesCol = db.collection<{ title: string; content: string; createdAt: number; updatedAt: number }>("notes");
+      const entries = await notesCol.scan();
+      const notes = entries
+        .map(e => e.doc)
+        .sort((a, b) => b.updatedAt - a.updatedAt);
 
       return {
         ok: true,
         count: notes.length,
-        entries: notes.map((n) => ({ title: n.title, createdAt: new Date(n.createdAt * 1000).toISOString() })),
+        entries: notes.map((n) => ({ title: n.title, createdAt: new Date(n.createdAt).toISOString() })),
       };
     } catch (error) {
       return { ok: false, error: `Failed to list memories: ${(error as Error).message}` };
@@ -118,14 +126,15 @@ export const memorySearchTool: Tool = {
     required: ["query"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = getDb();
-    const query = params.query as string;
+    const db = await getHiveDB();
+    const query = (params.query as string).toLowerCase();
 
     try {
-      const stmt = db.query<any, [string, string]>(
-        "SELECT id, title, content FROM notes WHERE content LIKE ? OR title LIKE ?"
-      );
-      const notes = stmt.all(`%${query}%`, `%${query}%`) as any[];
+      const notesCol = db.collection<{ title: string; content: string; createdAt: number; updatedAt: number }>("notes");
+      const entries = await notesCol.scan();
+      const notes = entries
+        .map(e => e.doc)
+        .filter(n => n.title.toLowerCase().includes(query) || n.content.toLowerCase().includes(query));
 
       return {
         ok: true,
@@ -155,16 +164,19 @@ export const memoryDeleteTool: Tool = {
     required: ["title"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = getDb();
+    const db = await getHiveDB();
     const title = params.title as string;
 
     try {
-      const result = db.query("DELETE FROM notes WHERE title = ?").run(title);
+      const notesCol = db.collection<{ title: string; content: string; createdAt: number; updatedAt: number }>("notes");
+      const entries = await notesCol.scan();
+      const target = entries.find(e => e.doc.title === title);
 
-      if (result.changes === 0) {
+      if (!target) {
         return { ok: false, error: `Memory not found: ${title}` };
       }
 
+      await notesCol.delete(target.id);
       return { ok: true, title, message: "Memory deleted." };
     } catch (error) {
       return { ok: false, error: `Failed to delete memory: ${(error as Error).message}` };
@@ -192,20 +204,19 @@ export const agentCreateTool: Tool = {
     required: ["name", "providerId", "modelId"],
   },
   execute: async (params: Record<string, unknown>, config?: any) => {
-    const db = getDb();
+    const db = await getHiveDB();
     const userId = config?.configurable?.user_id;
-    const parentId = config?.configurable?.agent_id ?? null;
+    const parentId = config?.configurable?.agent_id ?? undefined;
     const name = params.name as string;
     const description = (params.description as string) ?? "";
     const systemPrompt = (params.system_prompt as string) ?? "";
-    const toolsJson = params.tools_json ? JSON.stringify(params.tools_json) : null;
+    const toolsJson = params.tools_json ? JSON.stringify(params.tools_json) : undefined;
     const providerId = params.providerId as string;
     const modelId = params.modelId as string;
     const tone = (params.tone as string) ?? "friendly";
     const maxIterations = (params.max_iterations as number) ?? 10;
-    const parentWorkspace = config?.configurable?.workspace ?? null;
+    const parentWorkspace = config?.configurable?.workspace ?? undefined;
 
-    // Validar que providerId y modelId sean obligatorios
     if (!providerId || !modelId) {
       return { 
         ok: false, 
@@ -213,38 +224,34 @@ export const agentCreateTool: Tool = {
       };
     }
 
-    // Validar que el provider existe y está activo
-    const provider = db.query<any, [string]>(
-      "SELECT id, name, enabled, active FROM providers WHERE id = ?"
-    ).get(providerId);
+    const providersCol = db.collection<HiveProviderDoc>("providers");
+    const modelsCol = db.collection<HiveModelDoc>("models");
 
-    if (!provider) {
+    const [providerEntry, modelEntry] = await Promise.all([
+      providersCol.get(providerId),
+      modelsCol.get(modelId),
+    ]);
+
+    if (!providerEntry) {
       return { 
         ok: false, 
         error: `Provider '${providerId}' no existe. Usá get_available_models para ver providers disponibles.` 
       };
     }
-
-    if (!provider.enabled || !provider.active) {
+    if (!providerEntry.doc.enabled || !providerEntry.doc.active) {
       return { 
         ok: false, 
         error: `Provider '${providerId}' no está activo. Usá get_available_models para ver providers activos.` 
       };
     }
 
-    // Validar que el modelo existe y está activo
-    const model = db.query<any, [string]>(
-      "SELECT id, name, enabled, active FROM models WHERE id = ?"
-    ).get(modelId);
-
-    if (!model) {
+    if (!modelEntry) {
       return { 
         ok: false, 
         error: `Modelo '${modelId}' no existe. Usá get_available_models para ver modelos disponibles.` 
       };
     }
-
-    if (!model.enabled || !model.active) {
+    if (!modelEntry.doc.enabled || !modelEntry.doc.active) {
       return { 
         ok: false, 
         error: `Modelo '${modelId}' no está activo. Usá get_available_models para ver modelos activos.` 
@@ -253,24 +260,29 @@ export const agentCreateTool: Tool = {
 
     try {
       const agentId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+      const agentsCol = db.collection<HiveAgentDoc>("agents");
+      const now = Date.now();
 
-db.query(`
-        INSERT INTO agents (id, user_id, name, description, system_prompt, tools_json, role, status, parent_id, provider_id, model_id, tone, max_iterations, workspace)
-        VALUES (?, ?, ?, ?, ?, ?, 'worker', 'idle', ?, ?, ?, ?, ?, ?)
-      `).run(
-        agentId,
+      await agentsCol.put(agentId, {
+        id: agentId,
         userId,
         name,
         description,
         systemPrompt,
         toolsJson,
+        role: "worker",
+        status: "idle",
         parentId,
         providerId,
         modelId,
         tone,
         maxIterations,
-        parentWorkspace
-      );
+        workspace: parentWorkspace,
+        enabled: true,
+        active: true,
+        createdAt: now,
+        updatedAt: now,
+      });
 
       return { 
         ok: true, 
@@ -300,26 +312,29 @@ export const agentFindTool: Tool = {
     },
   },
   execute: async (params: Record<string, unknown>, config?: any) => {
-    const db = getDb();
+    const db = await getHiveDB();
     const userId = config?.configurable?.user_id;
     const search = params.search as string | undefined;
     const status = params.status as string | undefined;
 
     try {
-      let query = "SELECT id, name, description, role, status FROM agents WHERE user_id = ? AND role = 'worker'";
-      const args: any[] = [userId];
+      const agentsCol = db.collection<HiveAgentDoc>("agents");
+      const entries = await agentsCol.scan();
+
+      let agents = entries
+        .map(e => e.doc)
+        .filter(a => a.userId === userId && a.role === "worker");
 
       if (search) {
-        query += " AND (name LIKE ? OR description LIKE ?)";
-        args.push(`%${search}%`, `%${search}%`);
+        const s = search.toLowerCase();
+        agents = agents.filter(a =>
+          a.name.toLowerCase().includes(s) || a.description.toLowerCase().includes(s)
+        );
       }
 
       if (status && status !== "any") {
-        query += " AND status = ?";
-        args.push(status);
+        agents = agents.filter(a => a.status === status);
       }
-
-      const agents = db.query(query).all(...args) as any[];
 
       return {
         ok: true,
@@ -351,16 +366,18 @@ export const agentArchiveTool: Tool = {
     required: ["agentId"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = getDb();
+    const db = await getHiveDB();
     const agentId = params.agentId as string;
 
     try {
-      const result = db.query(`UPDATE agents SET enabled = 0, updated_at = unixepoch() WHERE id = ?`).run(agentId);
+      const agentsCol = db.collection<HiveAgentDoc>("agents");
+      const entry = await agentsCol.get(agentId);
 
-      if (result.changes === 0) {
+      if (!entry) {
         return { ok: false, error: `Agent not found: ${agentId}` };
       }
 
+      await agentsCol.put(agentId, { ...entry.doc, enabled: false, updatedAt: Date.now() });
       return { ok: true, agentId, message: "Agent archived." };
     } catch (error) {
       return { ok: false, error: `Failed to archive agent: ${(error as Error).message}` };

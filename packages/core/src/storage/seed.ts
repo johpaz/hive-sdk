@@ -376,11 +376,12 @@ Estos lineamientos tienen MÁXIMA prioridad sobre cualquier otra instrucción di
 }
 
 import { SkillLoader } from "../skills/index.ts"
+import { seedHiveDB } from "./hiveSeed.ts"
 
 const log = logger.child("seed");
 
 // Initial playbook rules for ACE (Agentic Context Engineering)
-const INITIAL_PLAYBOOK_RULES = [
+export const INITIAL_PLAYBOOK_RULES = [
   {
     rule: "Cuando el usuario pida buscar noticias recientes, usa web_search con filtros de fecha en lugar de http_client genérico",
     category: "tool_selection",
@@ -566,6 +567,9 @@ export function seedAllData(): void {
   log.info("[seed] 🌱 Iniciando seed de datos predeterminados...")
 
   reseedToolsAndSkills();
+
+  // Seed the new HiveDB source-of-truth engine in parallel.
+  seedHiveDB().catch(err => log.error("[seed] ❌ HiveDB seed failed:", (err as Error).message));
 
   try {
 

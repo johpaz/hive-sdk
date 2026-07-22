@@ -1,37 +1,54 @@
-import type { Database } from "bun:sqlite";
+import { getHiveDB } from "../storage/HiveDBStorage.ts";
+
+interface ScratchpadDoc {
+  threadId: string;
+  key: string;
+  value: string;
+  updatedAt: number;
+}
 
 export class Scratchpad {
-  constructor(private db: Database) {}
-
-  write(threadId: string, key: string, value: string): void {
-    this.db.run(
-      `INSERT OR REPLACE INTO scratchpad (thread_id, key, value, updated_at) VALUES (?, ?, ?, datetime('now'))`,
-      [threadId, key, value]
-    );
+  async write(threadId: string, key: string, value: string): Promise<void> {
+    const db = await getHiveDB();
+    const col = db.collection<ScratchpadDoc>("scratchpad");
+    await col.put(this.docId(threadId, key), { threadId, key, value, updatedAt: Date.now() });
   }
 
-  read(threadId: string, key: string): string | null {
-    const row = this.db
-      .query(`SELECT value FROM scratchpad WHERE thread_id = ? AND key = ?`)
-      .get(threadId, key) as any;
-    return row?.value ?? null;
+  async read(threadId: string, key: string): Promise<string | undefined> {
+    const db = await getHiveDB();
+    const col = db.collection<ScratchpadDoc>("scratchpad");
+    const entry = await col.get(this.docId(threadId, key));
+    return entry?.doc.value;
   }
 
-  list(threadId: string): Record<string, string> {
-    const rows = this.db
-      .query(`SELECT key, value FROM scratchpad WHERE thread_id = ?`)
-      .all(threadId) as any[];
-    return Object.fromEntries(rows.map(r => [r.key, r.value]));
+  async list(threadId: string): Promise<Record<string, string>> {
+    const db = await getHiveDB();
+    const col = db.collection<ScratchpadDoc>("scratchpad");
+    const entries = await col.scan();
+    const result: Record<string, string> = {};
+    for (const e of entries) {
+      if (e.doc.threadId === threadId) {
+        result[e.doc.key] = e.doc.value;
+      }
+    }
+    return result;
   }
 
-  delete(threadId: string, key: string): void {
-    this.db.run(
-      `DELETE FROM scratchpad WHERE thread_id = ? AND key = ?`,
-      [threadId, key]
-    );
+  async delete(threadId: string, key: string): Promise<void> {
+    const db = await getHiveDB();
+    const col = db.collection<ScratchpadDoc>("scratchpad");
+    await col.delete(this.docId(threadId, key));
   }
 
-  clear(threadId: string): void {
-    this.db.run(`DELETE FROM scratchpad WHERE thread_id = ?`, [threadId]);
+  async clear(threadId: string): Promise<void> {
+    const db = await getHiveDB();
+    const col = db.collection<ScratchpadDoc>("scratchpad");
+    const entries = await col.scan();
+    const ids = entries.filter(e => e.doc.threadId === threadId).map(e => e.id);
+    await db.batch(ids.map(id => ({ op: "delete" as const, collection: "scratchpad", id })));
+  }
+
+  private docId(threadId: string, key: string): string {
+    return `${threadId}:${key}`;
   }
 }

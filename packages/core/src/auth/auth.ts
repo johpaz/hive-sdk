@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import { hashString } from "../utils/crypto.ts";
-import { getDb } from "../storage/SQLiteStorage.ts";
+import { getHiveDB } from "../storage/HiveDBStorage.ts";
 
 const JWT_SECRET = process.env.JWT_SECRET || "hive-default-jwt-secret-change-in-production";
 const ACCESS_TOKEN_EXPIRY = "15m";
@@ -19,6 +19,17 @@ interface JwtPayload {
   type: "access" | "refresh";
 }
 
+interface RefreshTokenDoc {
+  userId: string;
+  tokenHash: string;
+  expiresAt: number;
+  revoked: boolean;
+}
+
+function tokensCollection() {
+  return getHiveDB().then(db => db.collection<RefreshTokenDoc>("refresh_tokens"));
+}
+
 export async function generateTokens(userId: string): Promise<AuthTokens> {
   const accessToken = jwt.sign({ userId, type: "access" } satisfies JwtPayload, JWT_SECRET, {
     expiresIn: ACCESS_TOKEN_EXPIRY,
@@ -31,12 +42,8 @@ export async function generateTokens(userId: string): Promise<AuthTokens> {
   const refreshTokenHash = hashString(refreshToken);
   const expiresAt = Math.floor(Date.now() / 1000) + REFRESH_TOKEN_EXPIRY_SECONDS;
 
-  const db = getDb();
-  db.run(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, revoked) 
-     VALUES (?, ?, ?, 0)`,
-    [userId, refreshTokenHash, expiresAt]
-  );
+  const col = await tokensCollection();
+  await col.put(refreshTokenHash, { userId, tokenHash: refreshTokenHash, expiresAt, revoked: false });
 
   return {
     accessToken,
@@ -59,27 +66,25 @@ export async function refreshAccessToken(refreshToken: string): Promise<AuthToke
   }
 
   const refreshTokenHash = hashString(refreshToken);
-  const db = getDb();
-  const tokenRow = db
-    .query(
-      `SELECT user_id, expires_at, revoked FROM refresh_tokens WHERE token_hash = ?`
-    )
-    .get(refreshTokenHash) as { user_id: string; expires_at: number; revoked: number } | undefined;
+  const col = await tokensCollection();
+  const entry = await col.get(refreshTokenHash);
 
-  if (!tokenRow) {
+  if (!entry) {
     throw new Error("Refresh token not found");
   }
 
-  if (tokenRow.revoked === 1) {
+  const tokenRow = entry.doc;
+
+  if (tokenRow.revoked) {
     throw new Error("Refresh token has been revoked");
   }
 
-  if (tokenRow.expires_at < Math.floor(Date.now() / 1000)) {
-    db.run(`DELETE FROM refresh_tokens WHERE token_hash = ?`, [refreshTokenHash]);
+  if (tokenRow.expiresAt < Math.floor(Date.now() / 1000)) {
+    await col.delete(refreshTokenHash);
     throw new Error("Refresh token has expired");
   }
 
-  db.run(`DELETE FROM refresh_tokens WHERE token_hash = ?`, [refreshTokenHash]);
+  await col.delete(refreshTokenHash);
 
   return generateTokens(payload.userId);
 }
@@ -98,11 +103,19 @@ export async function validateAccessToken(token: string): Promise<{ userId: stri
 
 export async function revokeRefreshToken(refreshToken: string): Promise<void> {
   const refreshTokenHash = hashString(refreshToken);
-  const db = getDb();
-  db.run(`UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?`, [refreshTokenHash]);
+  const col = await tokensCollection();
+  const entry = await col.get(refreshTokenHash);
+  if (entry) {
+    await col.put(refreshTokenHash, { ...entry.doc, revoked: true });
+  }
 }
 
 export async function revokeAllUserTokens(userId: string): Promise<void> {
-  const db = getDb();
-  db.run(`UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?`, [userId]);
+  const col = await tokensCollection();
+  const entries = await col.scan();
+  for (const e of entries) {
+    if (e.doc.userId === userId && !e.doc.revoked) {
+      await col.put(e.id, { ...e.doc, revoked: true });
+    }
+  }
 }

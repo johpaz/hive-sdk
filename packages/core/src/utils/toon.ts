@@ -113,7 +113,7 @@ export function formatToolResult(data: any, model?: string): string {
   const result = stringify(data, model)
 
   if (result.tokensSaved > 0 && model) {
-    recordToonSavings({
+    void recordToonSavings({
       jsonBytes: result.jsonBytes,
       toonBytes: result.toonBytes,
       savedBytes: result.savedBytes,
@@ -135,7 +135,7 @@ export function formatMCPResponse(data: any, model?: string): string {
   const result = stringify(data, model)
 
   if (result.tokensSaved > 0 && model) {
-    recordToonSavings({
+    void recordToonSavings({
       jsonBytes: result.jsonBytes,
       toonBytes: result.toonBytes,
       savedBytes: result.savedBytes,
@@ -157,7 +157,7 @@ export function formatSkillOutput(data: any, model?: string): string {
   const result = stringify(data, model)
 
   if (result.tokensSaved > 0 && model) {
-    recordToonSavings({
+    void recordToonSavings({
       jsonBytes: result.jsonBytes,
       toonBytes: result.toonBytes,
       savedBytes: result.savedBytes,
@@ -179,7 +179,7 @@ export function formatContext(data: any, model?: string): string {
   const result = stringify(data, model)
 
   if (result.tokensSaved > 0 && model) {
-    recordToonSavings({
+    void recordToonSavings({
       jsonBytes: result.jsonBytes,
       toonBytes: result.toonBytes,
       savedBytes: result.savedBytes,

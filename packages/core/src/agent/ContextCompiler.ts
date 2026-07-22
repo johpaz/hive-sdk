@@ -138,9 +138,9 @@ export async function compileContext(opts: {
 
   // [STEP-2] STRATEGY 1: WRITE — Load scratchpad (persistent notes)
   log.info(`[context-compiler] [STEP-2] Loading scratchpad...`)
-  let scratchpadNotes: ReturnType<typeof getScratchpad> = []
+  let scratchpadNotes: Awaited<ReturnType<typeof getScratchpad>> = []
   try {
-    scratchpadNotes = getScratchpad(threadId)
+    scratchpadNotes = await getScratchpad(threadId)
     log.info(`[context-compiler] [STEP-2] ✅ Loaded ${scratchpadNotes.length} scratchpad notes`)
   } catch (err) {
     log.error(`[context-compiler] [STEP-2] ❌ FAILED loading scratchpad: ${JSON.stringify(err)}`)
@@ -257,7 +257,7 @@ export async function compileContext(opts: {
 
   try {
     // Load minimal skills (always available)
-    minimalSkills = getMinimalSkills()
+    minimalSkills = await getMinimalSkills()
     log.info(`[context-compiler] [STEP-8b] ✅ Loaded ${minimalSkills.length} minimal skills`)
 
     // Discover additional skills via FTS5 (coordinator only)
@@ -268,7 +268,7 @@ export async function compileContext(opts: {
         : Array.isArray(inputForSkills)
           ? inputForSkills.filter(p => p.type === "text").map(p => (p as any).text).join("\n")
           : String(inputForSkills)
-      discoveredSkills = selectSkills(textMessage)
+      discoveredSkills = await selectSkills(textMessage)
       log.info(`[context-compiler] [STEP-8b] ✅ Discovered ${discoveredSkills.length} additional skills via FTS5`)
     }
   } catch (err) {

@@ -8,7 +8,8 @@
  */
 
 import type { Tool } from "../types.ts";
-import { getDb } from "../../storage/SQLiteStorage.ts";
+import { getHiveDB } from "../../storage/HiveDBStorage.ts";
+import type { HiveProviderDoc, HiveModelDoc } from "../../storage/hiveSeed.ts";
 
 export const getAvailableModelsTool: Tool = {
   name: "get_available_models",
@@ -31,7 +32,6 @@ export const getAvailableModelsTool: Tool = {
     },
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = getDb();
     const { providerId, modelType, capabilities } = params as {
       providerId?: string;
       modelType?: string;
@@ -39,74 +39,70 @@ export const getAvailableModelsTool: Tool = {
     };
 
     try {
-      // Construir query con filtros opcionales
-      let query = `
-        SELECT 
-          p.id as provider_id,
-          p.name as provider_name,
-          p.category as provider_category,
-          m.id as model_id,
-          m.name as model_name,
-          m.model_type,
-          m.context_window,
-          m.capabilities
-        FROM models m
-        INNER JOIN providers p ON m.provider_id = p.id
-        WHERE m.enabled = 1 AND m.active = 1 AND p.enabled = 1 AND p.active = 1
-      `;
+      const db = await getHiveDB();
+      const providersCol = db.collection<HiveProviderDoc>("providers");
+      const modelsCol = db.collection<HiveModelDoc>("models");
 
-      const whereClauses: string[] = [];
-      const queryParams: string[] = [];
+      const [providers, models] = await Promise.all([
+        providersCol.scan(),
+        modelsCol.scan(),
+      ]);
+
+      const activeProviders = new Map(
+        providers
+          .filter(p => p.doc.enabled && p.doc.active)
+          .map(p => [p.id, p.doc])
+      );
+
+      let rows = models
+        .filter(m => m.doc.enabled && m.doc.active)
+        .map(m => {
+          const provider = activeProviders.get(m.doc.providerId);
+          if (!provider) return null;
+          return {
+            providerId: provider.id,
+            providerName: provider.name,
+            providerCategory: provider.category,
+            modelId: m.doc.id,
+            modelName: m.doc.name,
+            modelType: m.doc.modelType,
+            contextWindow: m.doc.contextWindow ?? null,
+            capabilities: m.doc.capabilities ?? null,
+          };
+        })
+        .filter(Boolean) as Array<{
+          providerId: string;
+          providerName: string;
+          providerCategory: string;
+          modelId: string;
+          modelName: string;
+          modelType: string;
+          contextWindow: number | null;
+          capabilities: string[] | null;
+        }>;
 
       if (providerId) {
-        whereClauses.push("p.id = ?");
-        queryParams.push(providerId as string);
+        rows = rows.filter(r => r.providerId === providerId);
       }
 
       if (modelType) {
-        whereClauses.push("m.model_type = ?");
-        queryParams.push(modelType as string);
+        rows = rows.filter(r => r.modelType === modelType);
       }
 
       if (capabilities) {
-        whereClauses.push("m.capabilities LIKE ?");
-        queryParams.push(`%${capabilities as string}%`);
+        const cap = capabilities.toLowerCase();
+        rows = rows.filter(r => r.capabilities?.some(c => c.toLowerCase().includes(cap)));
       }
 
-      if (whereClauses.length > 0) {
-        query += " AND " + whereClauses.join(" AND ");
-      }
-
-      query += " ORDER BY p.name, m.name";
-
-      // Ejecutar query
-      const rows = db.query<any, string[]>(query).all(...queryParams) as Array<{
-        provider_id: string;
-        provider_name: string;
-        provider_category: string;
-        model_id: string;
-        model_name: string;
-        model_type: string;
-        context_window: number | null;
-        capabilities: string | null;
-      }>;
-
-      // Transformar a formato amigable
-      const result = rows.map(row => ({
-        providerId: row.provider_id,
-        providerName: row.provider_name,
-        providerCategory: row.provider_category,
-        modelId: row.model_id,
-        modelName: row.model_name,
-        modelType: row.model_type,
-        contextWindow: row.context_window,
-        capabilities: row.capabilities ? JSON.parse(row.capabilities) : null,
-      }));
+      rows.sort((a, b) => {
+        if (a.providerName !== b.providerName) return a.providerName.localeCompare(b.providerName);
+        return a.modelName.localeCompare(b.modelName);
+      });
 
       return {
         ok: true,
-        count: result.length,
-        models: result,
+        count: rows.length,
+        models: rows,
       };
     } catch (error) {
       return {

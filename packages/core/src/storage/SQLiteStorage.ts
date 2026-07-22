@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 import { getHiveDir } from "../config/loader.ts";
 import { SCHEMA, PROJECTS_SCHEMA, CONTEXT_ENGINE_SCHEMA, MEETING_SCHEMA } from "./schema.ts";
+import { openHiveDB, closeHiveDB } from "./HiveDBStorage.ts";
 
 function getDbPath(): string {
     return path.join(getHiveDir(), "data", "hive.db");
@@ -83,6 +84,12 @@ export function initializeDatabase(): Database {
     _db.run(MEETING_SCHEMA);
 
     ensureSchemaSync();
+
+    // Open HiveDB as the new source-of-truth engine alongside SQLite
+    // during the migration; SQLite will be removed once all tables are migrated.
+    openHiveDB().catch((err) => {
+      logger.error("❌ Failed to initialize HiveDB:", err);
+    });
 
     return _db;
 }

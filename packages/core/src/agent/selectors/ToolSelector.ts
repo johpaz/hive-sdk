@@ -40,8 +40,9 @@
  *    - core (notify, report_progress, save_note)
  */
 
-import { getDb } from "../../storage/SQLiteStorage.ts"
+import { getHiveDB } from "../../storage/HiveDBStorage.ts"
 import { logger } from "../../utils/logger.ts"
+import type { HiveDB, IndexDoc } from "@johpaz/hive-db";
 
 const log = logger.child("tool-selector")
 
@@ -302,11 +303,11 @@ function getAbstractionPreference(): "atomic" | "orchestration" {
  * 5. If ambiguous → prefer atomic over orchestration
  * 6. Return top maxTools results (default: MAX_TOOLS_PER_TURN)
  */
-export function selectTools(
+export async function selectTools(
     userMessage: string,
     fullToolList: ToolDescriptor[] = CORE_TOOL_CATALOG,
     maxTools: number = MAX_TOOLS_PER_TURN
-): ToolDescriptor[] {
+): Promise<ToolDescriptor[]> {
     const startTime = performance.now()
 
     // Log incoming user message for debugging/validation
@@ -318,78 +319,58 @@ export function selectTools(
         return []
     }
 
-    // Step 2: Build FTS5 query
-    const ftsQuery = buildFTSQuery(userMessage)
-    if (!ftsQuery) {
-        log.debug(`[tool-selector] No valid FTS query terms, returning empty array`)
+    // Step 2: Build search query
+    const searchQuery = buildFTSQuery(userMessage)
+    if (!searchQuery) {
+        log.debug(`[tool-selector] No valid query terms, returning empty array`)
         return []
     }
 
-    log.debug(`[tool-selector] FTS query: "${ftsQuery}"`)
+    log.debug(`[tool-selector] Search query: "${searchQuery}"`)
 
-    // Step 3: Execute FTS5 query with bm25 scoring
-    const db = getDb()
+    // Step 3: Execute hybrid search over the HiveDB semantic index
+    const db = await getHiveDB()
 
-    // Use bm25() with column weights for relevance scoring
-    // FTS5 table columns: tool_name, name, description, category
-    // Weights: tool_name=1.0, name=5.0, description=3.0, category=1.0
-    // Higher weight on name (5.0) for exact tool name matching
-    // Get more initially (maxTools * 2) for filtering, then limit to maxTools
-    const ftsResults = db.query(`
-      SELECT tool_name, bm25(tools_fts, 1.0, 5.0, 3.0, 1.0) as bm25_score
-      FROM tools_fts
-      WHERE tools_fts MATCH ?
-      ORDER BY bm25_score ASC
-      LIMIT ?
-    `).all(ftsQuery, maxTools * 2) as { tool_name: string; bm25_score: number }[]
+    // HiveDB text-only BM25 returns positive scores where higher is better.
+    const hits = await db.queryHybrid({
+        text: searchQuery,
+        k: maxTools * 2,
+        boosts: { name: 5.0, body: 3.0, tags: 1.0 },
+    })
 
-    if (ftsResults.length === 0) {
-        log.debug(`[tool-selector] No FTS matches, returning empty array`)
+    if (hits.length === 0) {
+        log.debug(`[tool-selector] No index matches, returning empty array`)
         return []
     }
 
     // Log raw scores for debugging
-    log.info(`[tool-selector] Raw FTS scores: ${ftsResults.slice(0, 10).map(r => `${r.tool_name}=${r.bm25_score.toFixed(2)}`).join(", ")}`)
+    log.info(`[tool-selector] Raw scores: ${hits.slice(0, 10).map(r => `${r.id}=${r.score.toFixed(2)}`).join(", ")}`)
 
-    // Step 4: Apply relevance threshold filter
-    // bm25() returns negative scores; threshold is -0.5 (loosened from typical -5)
-    const relevantResults = ftsResults.filter(r => r.bm25_score >= MIN_RELEVANCE_THRESHOLD)
-
-    if (relevantResults.length === 0) {
-        log.debug(`[tool-selector] All results below threshold ${MIN_RELEVANCE_THRESHOLD}, returning empty`)
-        return []
-    }
-
-    // Step 5: Map to tool descriptors with additional metadata
+    // Step 4: Map to tool descriptors with additional metadata
     const toolMap = new Map(fullToolList.map(t => [t.name, t]))
 
     const scoredTools: SelectedTool[] = []
 
-    for (const result of relevantResults) {
-        const tool = toolMap.get(result.tool_name)
+    for (const hit of hits) {
+        const tool = toolMap.get(hit.id)
         if (tool) {
             scoredTools.push({
                 name: tool.name,
-                score: result.bm25_score,
+                score: hit.score,
                 category: tool.category,
             })
         }
     }
 
-    // Step 6: Prefer atomic over orchestration when ambiguous
-    // If we have more than MAX_TOOLS_PER_TURN, prioritize by abstraction level
+    // Step 5: Prefer atomic over orchestration when ambiguous
     const abstractionPref = getAbstractionPreference()
 
     if (scoredTools.length > MAX_TOOLS_PER_TURN) {
-        // Sort by score first, then by abstraction level preference
-        // CRITICAL FIX: bm25() returns NEGATIVE scores where closer to 0 = more relevant
-        // So we sort ASCENDING (a.score - b.score) to put -8.02 before -5.11
+        // Sort by score descending (higher HiveDB score = more relevant)
         scoredTools.sort((a, b) => {
-            // First by score (ascending for bm25 - closer to 0 is better)
             if (Math.abs(a.score - b.score) > 0.1) {
-                return a.score - b.score  // ✅ Fixed: ascending for negative bm25 scores
+                return b.score - a.score
             }
-            // Then by abstraction preference (preferred type first)
             const aTool = toolMap.get(a.name)
             const bTool = toolMap.get(b.name)
             const aLevel = aTool?.abstractionLevel ?? "atomic"
@@ -403,15 +384,14 @@ export function selectTools(
         })
     }
 
-    // Step 7: Take top N tools
+    // Step 6: Take top N tools
     const topTools = scoredTools.slice(0, maxTools)
 
-    // Step 8: Return as ToolDescriptor array
+    // Step 7: Return as ToolDescriptor array
     const result = topTools.map(t => toolMap.get(t.name)!).filter(Boolean)
 
     const timing = performance.now() - startTime
 
-    // Log final selected tools with info level (important for tracking tool selection process)
     if (result.length > 0) {
         log.info(`[tool-selector] Selected ${result.length} tools in ${timing.toFixed(2)}ms:`,
             result.map(t => ({ name: t.name, category: t.category })))
@@ -434,29 +414,29 @@ export function selectTools(
  * @param tools - Optional array of tools to sync. If not provided, fetches from DB.
  */
 export async function syncToolCatalogToFTS(tools?: ToolDescriptor[]): Promise<void> {
-    const db = getDb()
+    const db = await getHiveDB()
 
     try {
-        // Step 1: Build full catalog = CORE_TOOL_CATALOG + any tools in DB not already covered
-        // CORE_TOOL_CATALOG has bilingual keywords; DB tools may be dynamically registered
+        // Step 1: Build full catalog = CORE_TOOL_CATALOG + any explicitly passed tools
         const catalogByName = new Map<string, ToolDescriptor>(
             CORE_TOOL_CATALOG.map(t => [t.name, t])
         )
 
-        // Merge in any tools from the DB that are missing from the static catalog
-        const dbTools = db.query("SELECT name, description, category FROM tools").all() as Array<{ name: string; description: string | null; category: string | null }>
-        for (const row of dbTools) {
+        // Merge in any tools persisted in HiveDB that are missing from the static catalog
+        const toolsCol = db.collection<ToolDescriptor>("tools")
+        const dbTools = await toolsCol.scan()
+        for (const entry of dbTools) {
+            const row = entry.doc
             if (!catalogByName.has(row.name)) {
                 catalogByName.set(row.name, {
                     name: row.name,
                     description: row.description ?? row.name,
-                    category: (row.category ?? "core") as any,
-                    abstractionLevel: "atomic",
+                    category: row.category ?? "core",
+                    abstractionLevel: row.abstractionLevel ?? "atomic",
                 })
             }
         }
 
-        // Also merge any explicitly passed tools (e.g. from initializer)
         for (const t of (tools || [])) {
             if (!catalogByName.has(t.name)) {
                 catalogByName.set(t.name, t)
@@ -465,39 +445,23 @@ export async function syncToolCatalogToFTS(tools?: ToolDescriptor[]): Promise<vo
 
         const toolCatalog = Array.from(catalogByName.values())
 
-        // Step 2: Atomic transaction for FTS5 sync
-        // We use a transaction to ensure that if sync fails, we don't end up with an empty FTS table
-        const syncTransaction = db.transaction(() => {
-            // Verify table exists inside transaction (optional but safer)
-            const tableCheck = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='tools_fts'").get()
-            if (!tableCheck) {
-                throw new Error("tools_fts table does not exist!")
-            }
+        // Step 2: Build index documents and upsert atomically via batch
+        const docs: IndexDoc[] = toolCatalog.map(tool => ({
+            id: tool.name,
+            name: tool.name,
+            body: enrichToolDescription(tool),
+            tags: tool.category,
+            filters: [{ field: "type", value: "tool" }],
+        }))
 
-            // A: Clear existing data
-            db.run("DELETE FROM tools_fts")
+        await db.clearIndex()
+        await db.upsertBatch(docs)
 
-            // B: Prepare insertion
-            const insert = db.prepare(`
-                INSERT INTO tools_fts(tool_name, name, description, category)
-                VALUES (?, ?, ?, ?)
-            `)
-
-            // C: Re-populate
-            for (const tool of toolCatalog) {
-                const enriched = enrichToolDescription(tool)
-                insert.run(tool.name, tool.name, enriched, tool.category)
-            }
-        })
-
-        // Execute transaction
-        syncTransaction()
-
-        log.info(`[tool-selector] Atomic sync complete: ${toolCatalog.length} tools indexed in FTS5`)
+        log.info(`[tool-selector] Atomic sync complete: ${toolCatalog.length} tools indexed in HiveDB`)
 
     } catch (err) {
         log.error(`[tool-selector] Transactional sync failed:`, err)
-        throw err // Re-throw to inform initializer
+        throw err
     }
 }
 
@@ -506,7 +470,7 @@ export async function syncToolCatalogToFTS(tools?: ToolDescriptor[]): Promise<vo
  * 
  * This improves FTS5 matching for both English and Spanish queries.
  */
-function enrichToolDescription(tool: ToolDescriptor): string {
+export function enrichToolDescription(tool: ToolDescriptor): string {
     const keywordsByCategory: Record<string, string> = {
         scheduling: "programar recordatorio alarma cron schedule reminder task future tiempo",
         projects: "proyecto tarea plan organizer milestone backlog sprint work",

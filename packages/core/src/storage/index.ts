@@ -8,3 +8,13 @@ export type { EncryptedData } from "./crypto.ts";
 export { encrypt, decrypt, encryptApiKey, decryptApiKey, encryptConfig, decryptConfig } from "./crypto.ts";
 export type { SeedData } from "./seed.ts";
 export { SEED_DATA, seedAllData } from "./seed.ts";
+export {
+  getHiveDbPath,
+  openHiveDB,
+  getHiveDB,
+  closeHiveDB,
+  hiveCollection,
+  hiveAppend,
+  hiveRead,
+  isHiveDBInitialized,
+} from "./HiveDBStorage.ts";
