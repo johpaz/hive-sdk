@@ -55,6 +55,13 @@ export type { IStorage } from "./memory/index.ts";
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
 export { initializeDatabase, dbService } from "./storage/index.ts";
+// HiveDB-backed catalogs (tools/skills/providers/models/playbook) that the
+// selectors and other HiveDB-backed features read from. Idempotent (upsert-
+// based) — safe to call on every boot, same "reseed so code changes take
+// effect" pattern as `initializeDatabase`. Not required to avoid crashes
+// (selectors degrade to empty results when unseeded), but needed for
+// dynamic skill/playbook discovery.
+export { seedHiveDB } from "./storage/index.ts";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 export { loadConfig, loadEnv, getHiveDir } from "./config/index.ts";

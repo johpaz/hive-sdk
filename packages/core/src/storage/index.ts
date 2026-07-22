@@ -18,3 +18,4 @@ export {
   hiveRead,
   isHiveDBInitialized,
 } from "./HiveDBStorage.ts";
+export { seedHiveDB } from "./hiveSeed.ts";
