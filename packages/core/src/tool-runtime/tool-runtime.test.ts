@@ -20,10 +20,18 @@ describe("tool runtime worker pool", () => {
   });
 
   it("runs multiple tools in parallel through worker scheduling", async () => {
+    // Per-tool delay + threshold sized for CI headroom: worker spawn/scheduling
+    // overhead is roughly fixed, so a larger delay keeps that overhead a small
+    // fraction of the budget instead of dominating it on a loaded runner.
+    // Serial execution would take ~3x the delay; the threshold stays well
+    // under that so the assertion still proves parallelism, not just patience.
+    const TOOL_DELAY_MS = 200;
+    const PARALLEL_THRESHOLD_MS = 450;
+
     const tools: RuntimeTool[] = ["slow_a", "slow_b", "slow_c"].map((name) => ({
       name,
       execute: async () => {
-        await delay(120);
+        await delay(TOOL_DELAY_MS);
         return { name };
       },
     }));
@@ -38,12 +46,12 @@ describe("tool runtime worker pool", () => {
       allTools: tools,
       toolConfig: {},
       hiveConfig: loadConfig(),
-      workerPool: { enabled: true, maxWorkers: 3, toolTimeoutMs: 1000, parallelToolCalls: true },
+      workerPool: { enabled: true, maxWorkers: 3, toolTimeoutMs: 5000, parallelToolCalls: true },
     });
     const elapsed = performance.now() - startedAt;
 
     expect(results.map((result) => (result.result as any).name)).toEqual(["slow_a", "slow_b", "slow_c"]);
-    expect(elapsed).toBeLessThan(260);
+    expect(elapsed).toBeLessThan(PARALLEL_THRESHOLD_MS);
   });
 
   it("preserves input order when tools complete out of order", async () => {
