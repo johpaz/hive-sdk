@@ -78,6 +78,16 @@ export interface AgentLoopOptions {
   signal?: AbortSignal
   /** Clean text for FTS5 and tracing (extracted from userMessage if multimodal) */
   rawUserMessage?: string
+  /**
+   * Per-call provider API key override, taking precedence over the DB-stored
+   * key resolved by `resolveProviderConfig`. Required for safe multi-tenant
+   * hosting (e.g. hive-cloud): without it, concurrent calls for different
+   * tenants using the same provider would race on `process.env[...]`, since
+   * that env var is process-global.
+   */
+  apiKey?: string
+  /** Per-call provider base URL override (self-hosted/proxy endpoints), same rationale as `apiKey`. */
+  baseUrl?: string
 }
 
 export interface StepEvent {
@@ -115,6 +125,8 @@ export async function* runAgent(
     agent.provider_id || "openai",
     agent.model_id || "gpt-4o-mini"
   )
+  if (opts.apiKey) providerCfg.apiKey = opts.apiKey
+  if (opts.baseUrl) providerCfg.baseUrl = opts.baseUrl
 
   const cleanModel = providerCfg.model.replace(new RegExp(`^${providerCfg.provider}\\/`), "")
   log.info(`[agent-loop] Starting: agent=${agentName} thread=${opts.threadId} provider=${providerCfg.provider}/${cleanModel}`)

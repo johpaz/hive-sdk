@@ -1,6 +1,6 @@
 {
   "name": "@johpaz/hive-sdk",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "private": false,
   "description": "Hive SDK — The Agent Harness SDK. Build, deploy, and scale AI agent applications with multi-channel support, context engineering, and swarm orchestration.",
   "license": "MIT",
@@ -28,6 +28,33 @@
   ],
   "main": "./packages/core/src/index.ts",
   "types": "./packages/core/src/index.ts",
+  "exports": {
+    ".": "./packages/core/src/index.ts",
+    "./agent": "./packages/core/src/agent/index.ts",
+    "./agent/providers": "./packages/core/src/agent/providers/index.ts",
+    "./agent/selectors": "./packages/core/src/agent/selectors/index.ts",
+    "./tools": "./packages/core/src/tools/index.ts",
+    "./skills": "./packages/core/src/skills/index.ts",
+    "./storage": "./packages/core/src/storage/index.ts",
+    "./swarm": "./packages/core/src/swarm/index.ts",
+    "./swarm/strategies": "./packages/core/src/swarm/strategies/index.ts",
+    "./swarm/presets": "./packages/core/src/swarm/presets/index.ts",
+    "./ace": "./packages/core/src/ace/index.ts",
+    "./ethics": "./packages/core/src/ethics/index.ts",
+    "./canvas": "./packages/core/src/canvas/index.ts",
+    "./config": "./packages/core/src/config/index.ts",
+    "./mcp": "./packages/core/src/mcp/index.ts",
+    "./mcp/transports": "./packages/core/src/mcp/transports/index.ts",
+    "./memory": "./packages/core/src/memory/index.ts",
+    "./multimodal": "./packages/core/src/multimodal/index.ts",
+    "./security": "./packages/core/src/security/index.ts",
+    "./state": "./packages/core/src/state/index.ts",
+    "./utils": "./packages/core/src/utils/index.ts",
+    "./gateway": "./packages/core/src/gateway/index.ts",
+    "./api": "./packages/core/src/api/index.ts",
+    "./harness": "./packages/core/src/harness/index.ts",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "hives": "./packages/cli/bin/hives"
   },
@@ -42,6 +69,7 @@
     "prepublish": "echo 'No build needed - Bun runs TypeScript directly'"
   },
   "dependencies": {
+    "@johpaz/hive-db": "^0.4.0",
     "@anthropic-ai/sdk": "^0.74.0",
     "@google/genai": "^1.43.0",
     "@modelcontextprotocol/sdk": "latest",

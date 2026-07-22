@@ -92,3 +92,9 @@ export type { WorkerConfig, WorkerInstance, WorkerChunk, WorkerPoolConfig, PoolT
 // ─── Utils ───────────────────────────────────────────────────────────────────
 export { logger } from "./utils/index.ts";
 export { retry } from "./utils/retry.ts";
+
+// ─── Harness (durable task execution) ───────────────────────────────────────
+// Namespaced to avoid flooding the top-level barrel with ~50 harness exports —
+// see docs/HIVE-HARNESS.md. Also available as a flat import from
+// "@johpaz/hive-sdk/harness".
+export * as harness from "./harness/index.ts";
