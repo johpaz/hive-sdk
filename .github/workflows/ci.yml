@@ -1,0 +1,63 @@
+name: CI
+
+# publish.yml sólo dispara con tags: hasta acá nadie corría la suite en un push
+# ni en un PR, así que una regresión sólo aparecía en el momento de publicar —
+# cuando ya es tarde para no publicarla.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck y tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - name: Tests
+        run: bun test --timeout 30000
+      - name: Verificar que la suite no tocó la base real
+        shell: bash
+        run: |
+          # test/preload.ts fija HIVE_DB_PATH=":memory:". Si algún import resuelve
+          # la ruta antes del preload, la suite le escribe a la base del usuario.
+          # En CI no se nota —~/.hive no existe— salvo que se compruebe.
+          test ! -e "$HOME/.hive/data/hivedb"
+
+  scaffold:
+    name: El scaffold generado compila
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - run: bun install --frozen-lockfile
+      - name: Generar una app y typecheckearla contra el SDK de este commit
+        shell: bash
+        run: |
+          # Lo que recibe un usuario nuevo: si `hives create-app` produce algo que
+          # no compila, la suite igual pasa y el error aparece del otro lado.
+          #
+          # El `bun link` no es cosmético: sin él, `bun install` en el scaffold se
+          # baja @johpaz/hive-sdk de npm y el job valida la versión YA publicada,
+          # no la de este commit — pasaría en verde justo cuando el cambio rompe
+          # la plantilla.
+          bun link
+          bun packages/cli/src/index.ts create-app ci-demo
+          cd ci-demo
+          bun install
+          bun link @johpaz/hive-sdk
+          bunx tsc --noEmit

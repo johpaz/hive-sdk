@@ -120,6 +120,11 @@ const BrowserConfigSchema = z.object({
   headless: z.boolean().optional(),
   timeoutMs: z.number().optional(),
   sessionName: z.string().optional(),
+  // "agent-browser" (default) usa Chrome via CLI y sirve headless/Docker.
+  // "webview" usa Bun.WebView in-process — mucho más rápido y sin instalación,
+  // pero requiere Chrome instalado (o macOS con WebKit). "auto" toma webview
+  // sólo si hay motor. Lo pisa HIVE_BROWSER_BACKEND.
+  backend: z.enum(["agent-browser", "webview", "auto"]).optional(),
 });
 
 const CanvasConfigSchema = z.object({

@@ -1,5 +1,37 @@
 # Changelog
 
+## Sin publicar
+
+### Seguridad
+
+- **`sanitizeDiagnostic` dejaba el token en claro detrás del esquema de auth.**
+  La regex consumía sólo la palabra `Bearer`, así que un diagnóstico con
+  `authorization: Bearer <token>` quedaba como `authorization: [REDACTED] <token>`
+  y la credencial viajaba al prompt del coordinador. Afecta a **0.1.5 y
+  anteriores**: el archivo viaja en el tarball publicado.
+
+### Corregido
+
+- Se fijaron las 8 dependencias que estaban en `latest` (`zod`, `discord.js`,
+  `grammy`, `@slack/bolt`, `@whiskeysockets/baileys`, `@modelcontextprotocol/sdk`,
+  `qrcode-terminal`, `@sapphire/snowflake`). Como `bun.lock` no se publica, cada
+  instalación resolvía `latest` de nuevo: el SDK ya estaba corriendo
+  `@slack/bolt` **5.0.0** mientras hive, con el mismo código de canales, corría
+  **4.7.x**. Ahora quedan alineados.
+
+### Añadido
+
+- **Backend de navegador intercambiable.** Las tools hablan con la interfaz
+  `BrowserBackend`; además del `agent-browser` de siempre (default, sin cambios)
+  hay un `WebViewBackend` sobre `Bun.WebView`, in-process, sin instalación de
+  ~75 MB ni descarga de Chrome. Se elige con `tools.browser.backend`
+  (`"agent-browser" | "webview" | "auto"`) o `HIVE_BROWSER_BACKEND`.
+- Cobertura de `acceptance-checks` (27 tests), del backend de navegador (27) y
+  del selector con tools registradas en runtime (6).
+- Workflow de CI: typecheck, tests, verificación de aislamiento de la base, y un
+  job que genera un scaffold con `create-app` y lo typechequea contra el SDK de
+  ese commit.
+
 ## 0.1.5
 
 Sincronización del SDK con el runtime de agentes de `hive`. **Trae rupturas de

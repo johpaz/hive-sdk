@@ -59,3 +59,5 @@ packages/*/build/
 .cache/
 .parcel-cache/
 .eslintcache
+# Scaffold que genera el job de CI al probar create-app
+ci-demo/
