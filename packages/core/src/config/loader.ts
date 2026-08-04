@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
+import { availableParallelism, homedir } from "node:os";
 
 const LogLevelSchema = z.enum(["debug", "info", "warn", "error"]);
 const DMPolicySchema = z.enum(["open", "pairing", "allowlist"]);
@@ -32,7 +33,7 @@ export function getHiveDir(): string {
   // Priority 1: HIVE_HOME explicitly set
   if (process.env.HIVE_HOME) {
     const hiveDir = process.env.HIVE_HOME.startsWith("~")
-      ? path.join(process.env.HOME || "", process.env.HIVE_HOME.slice(1))
+      ? path.join(homedir(), process.env.HIVE_HOME.slice(1))
       : process.env.HIVE_HOME;
     loadEnv(hiveDir);
     return hiveDir;
@@ -48,7 +49,7 @@ export function getHiveDir(): string {
   }
 
   // Priority 3: Default ~/.hive
-  const defaultDir = path.join(process.env.HOME || "", ".hive");
+  const defaultDir = path.join(homedir(), ".hive");
   loadEnv(defaultDir);
   return defaultDir;
 }
@@ -59,7 +60,7 @@ const expandPath = (p: string): string => {
     return p.replace("~/.hive", hiveDir);
   }
   if (p.startsWith("~")) {
-    return path.join(process.env.HOME || "", p.slice(1));
+    return path.join(homedir(), p.slice(1));
   }
   return p;
 };
@@ -116,14 +117,21 @@ const WebConfigSchema = z.object({
 
 const BrowserConfigSchema = z.object({
   enabled: z.boolean().optional(),
-  sessionName: z.string().optional(),
   headless: z.boolean().optional(),
   timeoutMs: z.number().optional(),
+  sessionName: z.string().optional(),
 });
 
 const CanvasConfigSchema = z.object({
   enabled: z.boolean().optional(),
   port: z.number().optional(),
+});
+
+const WorkerPoolConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  maxWorkers: z.number().optional(),
+  toolTimeoutMs: z.number().optional(),
+  parallelToolCalls: z.boolean().optional(),
 });
 
 const SandboxConfigSchema = z.object({
@@ -138,7 +146,12 @@ const ToolsConfigSchema = z.object({
   web: WebConfigSchema.optional(),
   browser: BrowserConfigSchema.optional(),
   canvas: CanvasConfigSchema.optional(),
+  workerPool: WorkerPoolConfigSchema.optional(),
   sandbox: SandboxConfigSchema.optional(),
+  // Per-tool timeout overrides (ms) keyed by tool name. Falls back to
+  // workerPool.toolTimeoutMs when absent. Long-running tools like cli_exec
+  // should set a higher value (e.g. 600000 = 10min).
+  timeouts: z.record(z.string(), z.number()).optional(),
 });
 
 const ContextConfigSchema = z.object({
@@ -237,11 +250,37 @@ const CronConfigSchema = z.object({
   timezone: z.string().optional(),
 });
 
+// G9 causal event log (HiveDB): IntentLogged/StateTransition/ToolCall emission
+// from agent-loop.ts, consumed by reflector/curator/context-compiler. Off by
+// default — each turn adds N+M+1 awaited db.append() calls to the critical path.
+const CausalLogConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+});
+
 const RetryConfigSchema = z.object({
   maxAttempts: z.number().optional(),
   initialDelayMs: z.number().optional(),
   backoffMultiplier: z.number().optional(),
   maxDelayMs: z.number().optional(),
+});
+
+const JobRetryConfigSchema = z.object({
+  // Logical-failure retries (executor returned {ok:false}). Separate from
+  // JobDoc.attempts, which only counts crash/lease-expiry reclaims.
+  maxRetries: z.number().optional(),
+  initialDelayMs: z.number().optional(),
+  backoffMultiplier: z.number().optional(),
+  maxDelayMs: z.number().optional(),
+  jitter: z.number().optional(),
+});
+
+const HarnessConfigSchema = z.object({
+  maxGlobalConcurrency: z.number().optional(),
+  taskTimeoutMs: z.number().optional(),
+  jobLeaseMs: z.number().optional(),
+  runLeaseMs: z.number().optional(),
+  leaseRenewMs: z.number().optional(),
+  jobRetry: JobRetryConfigSchema.optional(),
 });
 
 const HooksConfigSchema = z.object({
@@ -281,7 +320,7 @@ const GatewayConfigSchema = z.object({
 });
 
 const ModelsConfigSchema = z.object({
-  defaultProvider: z.enum(["openai", "anthropic", "gemini", "mistral", "kimi", "ollama", "openrouter", "deepseek"]).optional(),
+  defaultProvider: z.enum(["openai", "anthropic", "gemini", "mistral", "kimi", "ollama", "openrouter", "deepseek", "hiveagents"]).optional(),
   defaults: z.record(z.string(), z.string()).optional(),
   providers: z.record(z.string(), ProviderConfigSchema).optional(),
 });
@@ -305,17 +344,6 @@ const SecurityConfigSchema = z.object({
   skillScanning: z.boolean().optional(),
   warnOnInsecureConfig: z.boolean().optional(),
   allowedUsers: z.array(z.string()).optional(),
-});
-
-const CaptchaConfigSchema = z.object({
-  enabled: z.boolean().optional(),
-  autoSolve: z.boolean().optional(),
-  visionProvider: z.enum(["gemini", "openai", "anthropic"]).optional(),
-  visionModel: z.string().optional(),
-  maxAttempts: z.number().optional(),
-  maxRounds: z.number().optional(),
-  apiKey: z.string().optional(),
-  enabledSites: z.array(z.string()).optional(),
 });
 
 const UserConfigSchema = z.object({
@@ -345,10 +373,11 @@ const ConfigSchema = z.object({
   mcp: MCPConfigSchema.optional(),
   memory: MemoryConfigSchema.optional(),
   cron: CronConfigSchema.optional(),
+  causalLog: CausalLogConfigSchema.optional(),
   retry: RetryConfigSchema.optional(),
+  harness: HarnessConfigSchema.optional(),
   security: SecurityConfigSchema.optional(),
   hooks: HooksConfigSchema.optional(),
-  captcha: CaptchaConfigSchema.optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -358,7 +387,6 @@ export type MCPServerConfig = z.infer<typeof MCPServerConfigSchema>;
 export type AgentEntry = z.infer<typeof AgentEntrySchema>;
 export type Binding = z.infer<typeof BindingSchema>;
 export type UserConfig = z.infer<typeof UserConfigSchema>;
-export type CaptchaConfig = z.infer<typeof CaptchaConfigSchema>;
 
 function buildDefaultConfig(): Config {
   const hiveDir = getHiveDir();
@@ -428,7 +456,7 @@ function buildDefaultConfig(): Config {
         allowlist: [],
         denylist: ["rm -rf /", "sudo", "chmod 777", "> /dev/", "mkfs"],
         timeoutSeconds: 30,
-        workDir: path.join(process.env.HOME || "", "exec"), // Points to home for exec by default
+        workDir: path.join(homedir(), "exec"), // Points to home for exec by default
       },
       web: {
         allowlist: [],
@@ -437,13 +465,19 @@ function buildDefaultConfig(): Config {
       },
       browser: {
         enabled: true,
-        sessionName: "hive",
         headless: true,
         timeoutMs: 30000,
+        sessionName: "hive",
       },
       canvas: {
         enabled: true,
         port: 18793,
+      },
+      workerPool: {
+        enabled: true,
+        maxWorkers: Math.min(4, availableParallelism()),
+        toolTimeoutMs: 300000,
+        parallelToolCalls: true,
       },
       sandbox: {
         dm: { allow: ["*"], deny: [] },
@@ -480,11 +514,28 @@ function buildDefaultConfig(): Config {
       maxConcurrentJobs: 5,
       timezone: "UTC",
     },
+    causalLog: {
+      enabled: process.env.HIVE_CAUSAL_LOG === "true",
+    },
     retry: {
       maxAttempts: 3,
       initialDelayMs: 1000,
       backoffMultiplier: 2,
       maxDelayMs: 30000,
+    },
+    harness: {
+      maxGlobalConcurrency: parseInt(process.env.HIVE_HARNESS_MAX_CONCURRENCY || "4", 10),
+      taskTimeoutMs: parseInt(process.env.HIVE_HARNESS_TASK_TIMEOUT_MS || String(30 * 60 * 1000), 10),
+      jobLeaseMs: parseInt(process.env.HIVE_HARNESS_JOB_LEASE_MS || String(30 * 60 * 1000), 10),
+      runLeaseMs: parseInt(process.env.HIVE_HARNESS_RUN_LEASE_MS || String(2 * 60 * 1000), 10),
+      leaseRenewMs: parseInt(process.env.HIVE_HARNESS_LEASE_RENEW_MS || "30000", 10),
+      jobRetry: {
+        maxRetries: parseInt(process.env.HIVE_HARNESS_JOB_MAX_RETRIES || "3", 10),
+        initialDelayMs: parseInt(process.env.HIVE_HARNESS_JOB_RETRY_INITIAL_MS || "1000", 10),
+        backoffMultiplier: parseFloat(process.env.HIVE_HARNESS_JOB_RETRY_MULTIPLIER || "2"),
+        maxDelayMs: parseInt(process.env.HIVE_HARNESS_JOB_RETRY_MAX_MS || String(5 * 60 * 1000), 10),
+        jitter: parseFloat(process.env.HIVE_HARNESS_JOB_RETRY_JITTER || "0.2"),
+      },
     },
     security: {
       maxMessageLength: {
@@ -499,15 +550,6 @@ function buildDefaultConfig(): Config {
     },
     hooks: {
       scripts: {},
-    },
-    captcha: {
-      enabled: false,
-      autoSolve: true,
-      visionProvider: 'gemini',
-      visionModel: 'gemini-2.0-flash-exp',
-      maxAttempts: 3,
-      maxRounds: 5,
-      enabledSites: [],
     },
   };
 }

@@ -31,8 +31,22 @@ describe("hive create-app", () => {
     expect(existsSync(join(TEST_DIR, "docker-compose.yml"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".env.example"))).toBe(true);
     expect(existsSync(join(TEST_DIR, ".gitignore"))).toBe(true);
+    // Sin README el que corre `hives create-app` queda sin una sola instrucción.
+    expect(existsSync(join(TEST_DIR, "README.md"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src", "main.ts"))).toBe(true);
     expect(existsSync(join(TEST_DIR, "src", "agents", "coordinator.ts"))).toBe(true);
+  });
+
+  it("el README del scaffold lleva el nombre de la app y arranca con los pasos", async () => {
+    const { copyTemplate } = await import("./create-app-utils.ts");
+
+    copyTemplate(TEST_DIR, { "{{APP_NAME}}": "mi-app" });
+
+    const readme = readFileSync(join(TEST_DIR, "README.md"), "utf-8");
+    expect(readme).toContain("# mi-app");
+    expect(readme).not.toContain("{{APP_NAME}}");
+    expect(readme).toContain("bun install");
+    expect(readme).toContain("bun run dev");
   });
 
   it("replaces {{APP_NAME}} placeholder in all files", async () => {
@@ -43,8 +57,10 @@ describe("hive create-app", () => {
     const packageJson = readFileSync(join(TEST_DIR, "package.json"), "utf-8");
     expect(packageJson).toContain('"name": "my-awesome-app"');
 
+    // `Config` no tiene una clave `name`, así que el nombre de la app sólo se
+    // sustituye en el comentario de cabecera y en package.json.
     const config = readFileSync(join(TEST_DIR, "hive.config.ts"), "utf-8");
-    expect(config).toContain('name: "my-awesome-app"');
+    expect(config).toContain("my-awesome-app");
 
     const main = readFileSync(join(TEST_DIR, "src", "main.ts"), "utf-8");
     expect(main).toContain("Starting my-awesome-app...");
@@ -80,7 +96,11 @@ describe("hive create-app", () => {
     expect(config).toContain("discord: { enabled: false }");
     expect(config).toContain("whatsapp: { enabled: false }");
     expect(config).toContain("slack: { enabled: false }");
-    expect(config).toContain('path: process.env.HIVE_DATA_DIR ?? "./data/hive.db"');
+    // HiveDB no se configura por `hive.config.ts`: la ruta sale de HIVE_HOME /
+    // HIVE_DB_PATH. Una clave `database` acá rompería el `satisfies Config`.
+    expect(config).not.toContain("database:");
+    expect(config).not.toContain("hive.db");
+    expect(config).toContain("satisfies Config");
   });
 
   it("generates main.ts with all required imports", async () => {
@@ -91,15 +111,21 @@ describe("hive create-app", () => {
     const main = readFileSync(join(TEST_DIR, "src", "main.ts"), "utf-8");
 
     expect(main).toContain('from "@johpaz/hive-sdk"');
-    expect(main).toContain("createAgent");
     expect(main).toContain("startGateway");
-    expect(main).toContain("initializeDatabase");
+    // `initializeDatabase()` desapareció con la capa SQLite: `ensureHiveDb()`
+    // abre HiveDB, crea los índices y siembra el catálogo en un solo paso.
+    expect(main).toContain("ensureHiveDb");
+    expect(main).not.toContain("initializeDatabase");
     expect(main).toContain("ChannelManager");
     expect(main).toContain("logger");
     expect(main).toContain('import config from "../hive.config.ts"');
-    expect(main).toContain("await initializeDatabase()");
+    expect(main).toContain("await ensureHiveDb()");
     expect(main).toContain('await startGateway({');
     expect(main).toContain('process.on("SIGINT"');
+    // El coordinador se define una sola vez, en su módulo, y main.ts lo usa —
+    // antes el template creaba uno propio y dejaba coordinator.ts huérfano.
+    expect(main).toContain('from "./agents/coordinator.ts"');
+    expect(main).toContain("agentId: coordinatorAgent.id");
   });
 
   it("generates coordinator agent with correct config", async () => {
@@ -112,7 +138,10 @@ describe("hive create-app", () => {
     expect(agent).toContain('import { createAgent } from "@johpaz/hive-sdk"');
     expect(agent).toContain('name: "coordinator"');
     expect(agent).toContain('provider: "openai"');
-    expect(agent).toContain('model: "gpt-4o-mini"');
+    // El modelo del scaffold tiene que existir en SEED_DATA.models, o el primer
+    // `bun run dev` de un usuario nuevo muere con "no está en el catálogo".
+    expect(agent).toContain('model: "gpt-5.6-luna"');
+    expect(agent).toContain("export const coordinatorAgent");
   });
 
   it("generates docker-compose.yml with correct ports", async () => {
@@ -139,7 +168,7 @@ describe("hive create-app", () => {
 
     expect(env).toContain("HIVE_HOST=");
     expect(env).toContain("HIVE_PORT=");
-    expect(env).toContain("HIVE_DATA_DIR=");
+    expect(env).toContain("HIVE_HOME=");
     expect(env).toContain("OPENAI_API_KEY=");
     expect(env).toContain("ANTHROPIC_API_KEY=");
     expect(env).toContain("GOOGLE_API_KEY=");

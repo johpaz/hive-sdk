@@ -7,7 +7,7 @@ packets. It's what lets a host app (a `hive-app`, or a production service like
 Hive Cloud) survive a process restart mid-task without losing work or
 double-executing a tool call.
 
-It is deliberately **not** wired into `AgentRunner` automatically, and it has
+It is deliberately **not** wired into the agent loop automatically, and it has
 no built-in notion of "chat" vs "project task" vs any other app-specific job
 type — job `type` and run `kind` are plain strings. The host app defines its
 own vocabulary and registers executors for it. This is the same infrastructure

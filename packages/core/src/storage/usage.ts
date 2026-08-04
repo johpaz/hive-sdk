@@ -1,78 +1,137 @@
-import { getHiveDB } from "./HiveDBStorage.ts";
-import { randomUUID } from "crypto";
-import { logger } from "../utils/logger.ts";
+import { col, nextId, bumpRollup } from "./hive";
+import type { ModelDoc, UsageRecordDoc, UsageRollupDoc } from "./collections";
+import { logger } from "../utils/logger";
 
 const log = logger.child("usage");
 
-const MODEL_PRICING: Record<string, { inputPer1M: number; outputPer1M: number }> = {
-  "claude-opus-4-6":           { inputPer1M: 5,    outputPer1M: 25   },
-  "claude-sonnet-4-6":         { inputPer1M: 3,    outputPer1M: 15   },
-  "claude-haiku-4-5-20251001": { inputPer1M: 1,    outputPer1M: 5    },
-  "anthropic/claude-opus-4-6":   { inputPer1M: 5,  outputPer1M: 25   },
-  "anthropic/claude-sonnet-4-6": { inputPer1M: 3,  outputPer1M: 15   },
-  "gpt-4o":         { inputPer1M: 2.5,  outputPer1M: 10    },
-  "gpt-4o-mini":    { inputPer1M: 0.15, outputPer1M: 0.6   },
-  "gpt-5.4":        { inputPer1M: 2.5,  outputPer1M: 15    },
-  "gpt-5.4-pro":    { inputPer1M: 30,   outputPer1M: 180   },
-  "gpt-5.3":        { inputPer1M: 1.75, outputPer1M: 14    },
-  "gpt-5.2":        { inputPer1M: 1.75, outputPer1M: 14    },
-  "o4-mini":        { inputPer1M: 1.1,  outputPer1M: 4.4   },
-  "openai/gpt-5.4":     { inputPer1M: 2.5,  outputPer1M: 15  },
-  "openai/gpt-5.4-pro": { inputPer1M: 30,   outputPer1M: 180 },
-  "openai/gpt-5.2":     { inputPer1M: 1.75, outputPer1M: 14  },
-  "openai/gpt-oss-120b": { inputPer1M: 0.15, outputPer1M: 0.6  },
-  "openai/gpt-oss-20b":  { inputPer1M: 0.075, outputPer1M: 0.3 },
-  "gemini-3.1-pro-preview":        { inputPer1M: 2,    outputPer1M: 12   },
-  "gemini-3.1-flash-lite-preview":  { inputPer1M: 0.25, outputPer1M: 1.5  },
-  "gemini-3-flash-preview":         { inputPer1M: 0.5,  outputPer1M: 3    },
-  "gemini-2.5-pro":                 { inputPer1M: 1.25, outputPer1M: 10   },
-  "gemini-2.5-flash":               { inputPer1M: 0.15, outputPer1M: 0.6  },
-  "gemini-2.0-flash":               { inputPer1M: 0.1,  outputPer1M: 0.4  },
-  "gemini-2.0-flash-lite":          { inputPer1M: 0.075, outputPer1M: 0.3 },
-  "google/gemini-3.1-pro-preview":        { inputPer1M: 2,    outputPer1M: 12  },
-  "google/gemini-3.1-flash-lite-preview": { inputPer1M: 0.25, outputPer1M: 1.5 },
-  "google/gemini-3-flash-preview":        { inputPer1M: 0.5,  outputPer1M: 3   },
-  "google/gemini-2.5-flash":              { inputPer1M: 0.15, outputPer1M: 0.6 },
-  "mistral-large-2512":             { inputPer1M: 0.5,  outputPer1M: 1.5  },
-  "devstral-2512":                  { inputPer1M: 0.4,  outputPer1M: 2    },
-  "ministral-14b-2512":             { inputPer1M: 0.2,  outputPer1M: 0.2  },
-  "ministral-8b-2512":              { inputPer1M: 0.15, outputPer1M: 0.15 },
-  "codestral-2508":                 { inputPer1M: 0.2,  outputPer1M: 0.6  },
-  "mistral-small-3.2-24b-instruct": { inputPer1M: 0.1,  outputPer1M: 0.3  },
-  "mistral-large-latest":           { inputPer1M: 0.5,  outputPer1M: 1.5  },
-  "codestral-latest":               { inputPer1M: 0.2,  outputPer1M: 0.6  },
-  "deepseek-chat":     { inputPer1M: 0.28, outputPer1M: 0.42 },
-  "deepseek-reasoner": { inputPer1M: 0.28, outputPer1M: 0.42 },
-  "deepseek/deepseek-v3.2":   { inputPer1M: 0.25, outputPer1M: 0.4  },
-  "deepseek/deepseek-r1:free": { inputPer1M: 0,    outputPer1M: 0    },
-  "kimi-k2.5":          { inputPer1M: 0.45, outputPer1M: 2.2  },
-  "kimi-k2":            { inputPer1M: 0.45, outputPer1M: 2.2  },
-  "moonshot-v1-8k":     { inputPer1M: 1.67, outputPer1M: 1.67 },
-  "moonshot-v1-32k":    { inputPer1M: 3.33, outputPer1M: 3.33 },
-  "moonshot-v1-128k":   { inputPer1M: 8.33, outputPer1M: 8.33 },
-  "moonshotai/kimi-k2.5":            { inputPer1M: 0.45, outputPer1M: 2.2 },
-  "moonshotai/kimi-k2-instruct-0905": { inputPer1M: 0.45, outputPer1M: 2.2 },
-  "meta-llama/llama-3.3-70b-instruct": { inputPer1M: 0.88, outputPer1M: 0.88 },
-  "meta-llama/llama-4-maverick":       { inputPer1M: 0.2,  outputPer1M: 0.8  },
-  "qwen/qwen3.5-plus-02-15":  { inputPer1M: 0.26, outputPer1M: 1.56 },
-  "qwen/qwen3.5-flash-02-23": { inputPer1M: 0.1,  outputPer1M: 0.4  },
-  "qwen/qwen3-32b":           { inputPer1M: 0,    outputPer1M: 0    },
-  "llama-3.3-70b-versatile": { inputPer1M: 0.59, outputPer1M: 0.79 },
-  "llama-3.1-8b-instant":    { inputPer1M: 0.05, outputPer1M: 0.08 },
-  "groq/compound":            { inputPer1M: 0,    outputPer1M: 0    },
-  "groq/compound-mini":       { inputPer1M: 0,    outputPer1M: 0    },
-  "qwen3:4b":    { inputPer1M: 0, outputPer1M: 0 },
-  "qwen3:8b":    { inputPer1M: 0, outputPer1M: 0 },
-  "qwen3:14b":   { inputPer1M: 0, outputPer1M: 0 },
-  "llama3.2:3b": { inputPer1M: 0, outputPer1M: 0 },
-  "gemma3:9b":   { inputPer1M: 0, outputPer1M: 0 },
-};
+/**
+ * Costo de una llamada, en USD.
+ *
+ * El precio vive en la propia fila del modelo (`ModelDoc.input_per_1m` /
+ * `output_per_1m`), sembrada desde SEED_DATA.models. Antes había acá un mapa
+ * `MODEL_PRICING` hardcodeado en paralelo al catálogo: mantener dos listas en
+ * sincronía fallaba en silencio — un modelo sembrado sin entrada en el mapa
+ * costaba $0 sin avisar.
+ */
 
-function calculateCost(model: string, inputTokens: number, outputTokens: number): number {
-  const pricing = MODEL_PRICING[model] || { inputPer1M: 0, outputPer1M: 0 };
-  const inputCost = (inputTokens / 1_000_000) * pricing.inputPer1M;
-  const outputCost = (outputTokens / 1_000_000) * pricing.outputPer1M;
-  return inputCost + outputCost;
+/** Precio por id de modelo. Se llena bajo demanda y lo invalida el re-seed. */
+let pricingCache: Map<string, { input: number; output: number } | null> | null = null;
+
+/** Llamar cuando el catálogo cambie, para que el próximo costo relea de la BD. */
+export function invalidateModelPricingCache(): void {
+  pricingCache = null;
+}
+
+async function loadPricing(): Promise<Map<string, { input: number; output: number } | null>> {
+  if (pricingCache) return pricingCache;
+  const cache = new Map<string, { input: number; output: number } | null>();
+  try {
+    const modelsCol = await col<ModelDoc>("models");
+    for (const row of await modelsCol.scan({})) {
+      const { input_per_1m: i, output_per_1m: o } = row.doc;
+      cache.set(row.id, i == null && o == null ? null : { input: i ?? 0, output: o ?? 0 });
+    }
+    pricingCache = cache;
+  } catch {
+    // La BD puede no estar lista todavía (arranque temprano): no cachear el
+    // resultado vacío o el costo quedaría en 0 para toda la vida del proceso.
+    return cache;
+  }
+  return cache;
+}
+
+/** Modelos ya avisados, para no repetir el warning en cada llamada. */
+const unpricedModels = new Set<string>();
+
+export async function calculateCost(
+  provider: string,
+  model: string,
+  inputTokens: number,
+  outputTokens: number
+): Promise<number> {
+  const pricing = (await loadPricing()).get(model);
+
+  if (!pricing) {
+    // Sin esto un modelo sin tarifa aparece como $0.00 en el dashboard, que es
+    // indistinguible de un modelo realmente gratuito.
+    const key = `${provider}/${model}`;
+    if (!unpricedModels.has(key)) {
+      unpricedModels.add(key);
+      log.warn(`[usage] Sin tarifa para ${key} — su costo se contará como $0. Agregá inputPer1M/outputPer1M en SEED_DATA.models (storage/seed.ts).`);
+    }
+    return 0;
+  }
+
+  return (inputTokens / 1_000_000) * pricing.input + (outputTokens / 1_000_000) * pricing.output;
+}
+
+/** Hourly bucket key ("2026-07-09T14") — lexicographic order matches chronological order. */
+export function hourBucket(ts: number): string {
+  return new Date(ts).toISOString().slice(0, 13);
+}
+
+function emptyRollup(): UsageRollupDoc {
+  return {
+    inputTokens: 0, outputTokens: 0, costUsd: 0,
+    toonSavedTokens: 0, toonSavedCost: 0, toonSavedBytes: 0,
+    toonJsonTokens: 0, toonToonTokens: 0, toonJsonBytes: 0,
+    byProvider: {}, byModel: {},
+  };
+}
+
+/**
+ * Applies the top-level token/cost delta exactly once, plus both the
+ * byProvider and byModel nested breakdowns, in a single read-modify-write.
+ * `bumpRollup`'s generic helper only supports one nested dimension per call —
+ * calling it twice here would double-apply the top-level delta.
+ */
+async function bumpUsageRollup(
+  hour: string,
+  delta: { inputTokens: number; outputTokens: number; costUsd: number },
+  provider: string,
+  model: string
+): Promise<void> {
+  const rollupsCol = await col<UsageRollupDoc>("usageRollups");
+  const MAX_RETRIES = 5;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const existing = await rollupsCol.get(hour);
+    // Merge over emptyRollup() defaults, not just the raw existing doc — a rollup
+    // for this hour may have been created by recordToonSavings()'s generic
+    // bumpRollup() call, which never initializes byProvider/byModel.
+    const doc = existing ? { ...emptyRollup(), ...existing.doc } : emptyRollup();
+
+    doc.inputTokens += delta.inputTokens;
+    doc.outputTokens += delta.outputTokens;
+    doc.costUsd += delta.costUsd;
+
+    const curProvider = doc.byProvider[provider] ?? { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+    doc.byProvider = {
+      ...doc.byProvider,
+      [provider]: {
+        inputTokens: curProvider.inputTokens + delta.inputTokens,
+        outputTokens: curProvider.outputTokens + delta.outputTokens,
+        costUsd: curProvider.costUsd + delta.costUsd,
+      },
+    };
+
+    const curModel = doc.byModel[model] ?? { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+    doc.byModel = {
+      ...doc.byModel,
+      [model]: {
+        inputTokens: curModel.inputTokens + delta.inputTokens,
+        outputTokens: curModel.outputTokens + delta.outputTokens,
+        costUsd: curModel.costUsd + delta.costUsd,
+      },
+    };
+
+    try {
+      await rollupsCol.put(hour, doc, { expectedVersion: existing?.version ?? 0 });
+      return;
+    } catch {
+      // Version conflict — retry with a fresh read.
+    }
+  }
+  log.warn(`[USAGE] bumpUsageRollup: too much contention on usageRollups/${hour}`);
 }
 
 export interface UsageRecord {
@@ -112,163 +171,145 @@ export interface UsageSummary {
   recentRecords: UsageRecord[];
 }
 
-export async function recordUsage(options: {
+export function recordUsage(options: {
   provider: string;
   model: string;
   inputTokens: number;
   outputTokens: number;
   latencyMs?: number;
-}): Promise<void> {
-  try {
-    const db = await getHiveDB();
-    const col = db.collection<UsageRecord>("usage_records");
-    const costUsd = calculateCost(options.model, options.inputTokens, options.outputTokens);
+}): void {
+  // Fire-and-forget to avoid blocking the LLM call path.
+  Promise.resolve().then(async () => {
+    try {
+      const costUsd = await calculateCost(options.provider, options.model, options.inputTokens, options.outputTokens);
+      const now = Date.now();
 
-    await col.put(randomUUID(), {
-      id: randomUUID(),
-      provider: options.provider,
-      model: options.model,
-      input_tokens: options.inputTokens,
-      output_tokens: options.outputTokens,
-      cost_usd: costUsd,
-      latency_ms: options.latencyMs ?? null,
-      toon_saved_tokens: 0,
-      toon_saved_cost: 0,
-      toon_json_bytes: 0,
-      toon_toon_bytes: 0,
-      toon_saved_bytes: 0,
-      toon_saved_percent: 0,
-      toon_json_tokens: 0,
-      toon_toon_tokens: 0,
-      toon_saved_tokens_pct: 0,
-      created_at: Math.floor(Date.now() / 1000),
-    });
+      const id = await nextId("usageRecords");
+      const recordsCol = await col<UsageRecordDoc>("usageRecords");
+      await recordsCol.put(id, {
+        id,
+        provider: options.provider,
+        model: options.model,
+        input_tokens: options.inputTokens,
+        output_tokens: options.outputTokens,
+        cost_usd: costUsd,
+        latency_ms: options.latencyMs || null,
+        toon_saved_tokens: 0,
+        toon_saved_cost: 0,
+        toon_json_bytes: 0,
+        toon_toon_bytes: 0,
+        toon_saved_bytes: 0,
+        toon_saved_percent: 0,
+        toon_json_tokens: 0,
+        toon_toon_tokens: 0,
+        toon_saved_tokens_pct: 0,
+        created_at: now,
+      }, { expectedVersion: 0 });
 
-    log.info(`[USAGE RECORDED] provider=${options.provider} model=${options.model} input=${options.inputTokens} output=${options.outputTokens} cost=$${costUsd.toFixed(4)}`);
-  } catch (error) {
-    console.error("Failed to record usage:", error);
+      const hour = hourBucket(now);
+      const delta = { inputTokens: options.inputTokens, outputTokens: options.outputTokens, costUsd };
+      await bumpUsageRollup(hour, delta, options.provider, options.model);
+
+      log.info(`[USAGE RECORDED] provider=${options.provider} model=${options.model} input=${options.inputTokens} output=${options.outputTokens} cost=$${costUsd.toFixed(4)}`);
+    } catch (error) {
+      console.error("Failed to record usage:", error);
+    }
+  });
+}
+
+/** Every hour bucket key from `hours` ago through now, oldest first. */
+function hourBucketsSince(hours: number): string[] {
+  const now = Date.now();
+  const buckets: string[] = [];
+  for (let t = now - hours * 3600_000; t <= now; t += 3600_000) {
+    buckets.push(hourBucket(t));
   }
+  return buckets;
 }
 
 export async function getUsageStats(hours: number = 24): Promise<UsageSummary> {
   log.info(`[USAGE STATS] Fetching stats for last ${hours} hours`);
-  const db = await getHiveDB();
-  const col = db.collection<UsageRecord>("usage_records");
-  const since = Math.floor(Date.now() / 1000) - (hours * 3600);
 
-  const entries = await col.scan();
-  const records = entries.map(e => e.doc).filter(r => r.created_at >= since);
-
-  const totals = records.reduce((acc, r) => ({
-    total_input: acc.total_input + r.input_tokens,
-    total_output: acc.total_output + r.output_tokens,
-    total_cost: acc.total_cost + r.cost_usd,
-    toon_saved_tokens: acc.toon_saved_tokens + r.toon_saved_tokens,
-    toon_saved_cost: acc.toon_saved_cost + r.toon_saved_cost,
-    toon_saved_bytes: acc.toon_saved_bytes + r.toon_saved_bytes,
-    toon_saved_percent: acc.toon_saved_percent + r.toon_saved_percent,
-    toon_json_tokens: acc.toon_json_tokens + r.toon_json_tokens,
-    toon_toon_tokens: acc.toon_toon_tokens + r.toon_toon_tokens,
-  }), {
-    total_input: 0,
-    total_output: 0,
-    total_cost: 0,
-    toon_saved_tokens: 0,
-    toon_saved_cost: 0,
-    toon_saved_bytes: 0,
-    toon_saved_percent: 0,
-    toon_json_tokens: 0,
-    toon_toon_tokens: 0,
-  });
+  const rollupsCol = await col<UsageRollupDoc>("usageRollups");
+  const buckets = hourBucketsSince(hours);
+  const rollups = (await Promise.all(buckets.map((id) => rollupsCol.get(id))))
+    .map((e) => e?.doc ?? emptyRollup());
 
   const providerMap: UsageSummary["byProvider"] = {};
   const modelMap: UsageSummary["byModel"] = {};
+  let totalInput = 0, totalOutput = 0, totalCost = 0;
+  let toonSavedTokens = 0, toonSavedCost = 0, toonSavedBytes = 0;
+  let toonJsonTokens = 0, toonToonTokens = 0, toonJsonBytes = 0;
 
-  for (const r of records) {
-    if (r.provider === "toon") continue;
-    if (!providerMap[r.provider]) {
-      providerMap[r.provider] = { inputTokens: 0, outputTokens: 0, tokens: 0, costUsd: 0 };
-    }
-    providerMap[r.provider].inputTokens += r.input_tokens;
-    providerMap[r.provider].outputTokens += r.output_tokens;
-    providerMap[r.provider].tokens += r.input_tokens + r.output_tokens;
-    providerMap[r.provider].costUsd += r.cost_usd;
+  for (const r of rollups) {
+    totalInput += r.inputTokens;
+    totalOutput += r.outputTokens;
+    totalCost += r.costUsd;
+    toonSavedTokens += r.toonSavedTokens;
+    toonSavedCost += r.toonSavedCost;
+    toonSavedBytes += r.toonSavedBytes;
+    toonJsonTokens += r.toonJsonTokens;
+    toonToonTokens += r.toonToonTokens;
+    toonJsonBytes += r.toonJsonBytes;
 
-    if (!modelMap[r.model]) {
-      modelMap[r.model] = { provider: r.provider, inputTokens: 0, outputTokens: 0, tokens: 0, costUsd: 0 };
+    for (const [provider, p] of Object.entries(r.byProvider ?? {})) {
+      const cur = providerMap[provider] ?? { tokens: 0, costUsd: 0, inputTokens: 0, outputTokens: 0 };
+      cur.inputTokens += p.inputTokens;
+      cur.outputTokens += p.outputTokens;
+      cur.tokens += p.inputTokens + p.outputTokens;
+      cur.costUsd += p.costUsd;
+      providerMap[provider] = cur;
     }
-    modelMap[r.model].inputTokens += r.input_tokens;
-    modelMap[r.model].outputTokens += r.output_tokens;
-    modelMap[r.model].tokens += r.input_tokens + r.output_tokens;
-    modelMap[r.model].costUsd += r.cost_usd;
+    for (const [model, m] of Object.entries(r.byModel ?? {})) {
+      const cur = modelMap[model] ?? { provider: "unknown", tokens: 0, costUsd: 0, inputTokens: 0, outputTokens: 0 };
+      cur.inputTokens += m.inputTokens;
+      cur.outputTokens += m.outputTokens;
+      cur.tokens += m.inputTokens + m.outputTokens;
+      cur.costUsd += m.costUsd;
+      modelMap[model] = cur;
+    }
   }
 
-  const recentRecords = records
-    .filter(r => r.created_at >= since)
-    .sort((a, b) => b.created_at - a.created_at)
-    .slice(0, 20);
+  const sinceMs = Date.now() - hours * 3600_000;
+  const recordsCol = await col<UsageRecordDoc>("usageRecords");
+  const recentRecords = (await recordsCol.scan({ reverse: true, limit: 20 }))
+    .map((e) => e.doc)
+    .filter((r) => r.created_at >= sinceMs);
 
-  const totalTokens = totals.total_input + totals.total_output;
-  const totalIncludingSaved = totalTokens + totals.toon_saved_tokens;
+  const totalTokens = totalInput + totalOutput;
+  const totalIncludingSaved = totalTokens + toonSavedTokens;
   const toonSavingsPercent = totalIncludingSaved > 0
-    ? (totals.toon_saved_tokens / totalIncludingSaved) * 100
+    ? (toonSavedTokens / totalIncludingSaved) * 100
     : 0;
 
-  const toonSavedBytesPercent = totals.toon_toon_tokens > 0
-    ? (totals.toon_saved_bytes / totals.toon_toon_tokens) * 100
+  // Ratio-of-sums (not mean-of-per-record-percentages) — avoids bias from varying record sizes.
+  const toonSavedBytesPercent = toonJsonBytes > 0
+    ? (toonSavedBytes / toonJsonBytes) * 100
     : 0;
 
   return {
     totalTokens,
-    totalInputTokens: totals.total_input,
-    totalOutputTokens: totals.total_output,
-    totalCostUsd: totals.total_cost,
-    toonSavedTokens: totals.toon_saved_tokens,
-    toonSavedCost: totals.toon_saved_cost,
-    toonSavedBytes: totals.toon_saved_bytes,
+    totalInputTokens: totalInput,
+    totalOutputTokens: totalOutput,
+    totalCostUsd: totalCost,
+    toonSavedTokens,
+    toonSavedCost,
+    toonSavedBytes,
     toonSavedBytesPercent,
-    toonJsonTokens: totals.toon_json_tokens,
-    toonToonTokens: totals.toon_toon_tokens,
+    toonJsonTokens,
+    toonToonTokens,
     toonSavingsPercent,
     byProvider: providerMap,
     byModel: modelMap,
-    recentRecords,
+    recentRecords
   };
 }
 
-export function getProviderPricing(provider: string, model: string): { inputPer1M: number; outputPer1M: number } {
-  return MODEL_PRICING[model] || { inputPer1M: 0, outputPer1M: 0 };
-}
-
-export function estimateCostForTokens(model: string, tokens: number): number {
-  const pricing = MODEL_PRICING[model] || { inputPer1M: 0, outputPer1M: 0 };
-  return (tokens / 1_000_000) * pricing.inputPer1M;
-}
-
-export function getAverageTokenCost(model: string): number {
-  let pricing = MODEL_PRICING[model];
-
-  if (!pricing) {
-    const slashIdx = model.indexOf('/');
-    if (slashIdx !== -1) {
-      pricing = MODEL_PRICING[model.slice(slashIdx + 1)];
-    }
-  }
-
-  if (!pricing) {
-    for (const [key, p] of Object.entries(MODEL_PRICING)) {
-      if (model.includes(key) || key.includes(model)) {
-        pricing = p;
-        break;
-      }
-    }
-  }
-
-  if (!pricing) return 0;
-  return (pricing.inputPer1M + pricing.outputPer1M) / 2 / 1_000_000;
-}
-
-export async function recordToonSavings(
+/**
+ * Record TOON savings for metrics tracking
+ * This updates the usage_records table with complete TOON compression metrics
+ */
+export function recordToonSavings(
   analysis: {
     jsonBytes: number;
     toonBytes: number;
@@ -281,33 +322,52 @@ export async function recordToonSavings(
   },
   costSaved: number,
   category: string
-): Promise<void> {
-  try {
-    const db = await getHiveDB();
-    const col = db.collection<UsageRecord>("usage_records");
+): void {
+  // Fire-and-forget to avoid blocking
+  Promise.resolve().then(async () => {
+    try {
+      const now = Date.now();
+      const savedTokens = Math.max(0, analysis.savedTokens);
+      const savedPercent = Math.max(0, analysis.savedPercent);
+      const savedTokensPct = Math.max(0, analysis.savedTokensPercent);
 
-    await col.put(`toon_${category}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, {
-      id: `toon_${category}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      provider: "toon",
-      model: category,
-      input_tokens: 0,
-      output_tokens: 0,
-      cost_usd: 0,
-      latency_ms: null,
-      toon_saved_tokens: Math.max(0, analysis.savedTokens),
-      toon_saved_cost: costSaved,
-      toon_json_bytes: analysis.jsonBytes,
-      toon_toon_bytes: analysis.toonBytes,
-      toon_saved_bytes: analysis.savedBytes,
-      toon_saved_percent: Math.max(0, analysis.savedPercent),
-      toon_json_tokens: analysis.jsonTokens,
-      toon_toon_tokens: analysis.toonTokens,
-      toon_saved_tokens_pct: Math.max(0, analysis.savedTokensPercent),
-      created_at: Math.floor(Date.now() / 1000),
-    });
+      // Insert TOON savings record with complete metrics
+      const id = await nextId("usageRecords");
+      const recordsCol = await col<UsageRecordDoc>("usageRecords");
+      await recordsCol.put(id, {
+        id,
+        provider: "toon",
+        model: category,
+        input_tokens: 0,
+        output_tokens: 0,
+        cost_usd: 0,
+        latency_ms: null,
+        toon_saved_tokens: savedTokens,
+        toon_saved_cost: costSaved,
+        toon_json_bytes: analysis.jsonBytes,
+        toon_toon_bytes: analysis.toonBytes,
+        toon_saved_bytes: analysis.savedBytes,
+        toon_saved_percent: savedPercent,
+        toon_json_tokens: analysis.jsonTokens,
+        toon_toon_tokens: analysis.toonTokens,
+        toon_saved_tokens_pct: savedTokensPct,
+        created_at: now,
+      }, { expectedVersion: 0 });
 
-    log.debug(`[TOON] Recorded ${analysis.savedTokens} tokens ($${costSaved.toFixed(6)}) saved for ${category}`);
-  } catch (error) {
-    log.warn(`[TOON] Failed to record savings:`, error);
-  }
+      // Only the toon-specific fields go into the rollup — no byProvider/byModel
+      // breakdown for these (they carry no real token/cost data of their own).
+      await bumpRollup("usageRollups", hourBucket(now), {
+        toonSavedTokens: savedTokens,
+        toonSavedCost: costSaved,
+        toonSavedBytes: analysis.savedBytes,
+        toonJsonTokens: analysis.jsonTokens,
+        toonToonTokens: analysis.toonTokens,
+        toonJsonBytes: analysis.jsonBytes,
+      });
+
+      log.debug(`[TOON] Recorded ${analysis.savedTokens} tokens ($${costSaved.toFixed(6)}) saved for ${category}`)
+    } catch (error) {
+      log.warn(`[TOON] Failed to record savings:`, error)
+    }
+  })
 }

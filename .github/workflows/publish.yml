@@ -1,5 +1,7 @@
 name: Publish to NPM
 
+# Se dispara con el tag que crea `bun run release`
+# (scripts/bump-version.ts --push), o a mano desde la UI de Actions.
 on:
   push:
     tags:
@@ -7,8 +9,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g., 0.0.15)'
+        description: 'Version (e.g., 0.1.5)'
         required: true
+        type: string
+      npm_tag:
+        description: 'npm dist-tag'
+        required: false
+        default: 'latest'
         type: string
 
 permissions:
@@ -22,6 +29,9 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Necesario para leer el mensaje del tag anotado.
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -34,8 +44,28 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
+      # `bun test` a secas: la mayoría de la suite vive en test/, no sólo en
+      # packages/core/src/. Limitarlo a src/ dejaba 24 archivos sin correr.
       - name: Run tests
-        run: bun test packages/core/src/ --timeout 30000
+        run: bun test --timeout 30000
+
+      - name: Resolve version and dist-tag
+        id: meta
+        run: |
+          VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          VERSION="${VERSION#v}"
+
+          NPM_TAG="${{ github.event.inputs.npm_tag }}"
+          if [ -z "$NPM_TAG" ]; then
+            # bump-version.ts lo deja en el mensaje del tag como [npm-tag:xxx]
+            MSG=$(git tag -l --format='%(contents)' "${{ github.ref_name }}" 2>/dev/null || echo "")
+            NPM_TAG=$(echo "$MSG" | sed -n 's/.*\[npm-tag:\([^]]*\)\].*/\1/p')
+          fi
+          NPM_TAG="${NPM_TAG:-latest}"
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "npm_tag=$NPM_TAG" >> $GITHUB_OUTPUT
+          echo "Publishing $VERSION with dist-tag $NPM_TAG"
 
       - name: Configure NPM token
         run: |
@@ -49,19 +79,16 @@ jobs:
 
       - name: Publish to NPM
         run: |
-          VERSION="${{ github.event.inputs.version || github.ref_name }}"
-          VERSION="${VERSION#v}"
-          echo "Publishing version: $VERSION"
+          VERSION="${{ steps.meta.outputs.version }}"
 
-          # Sync version to root package.json
+          # El tag manda: si el árbol quedó en otra versión, la del tag gana.
           node -e "
             const p=require('./package.json');
             p.version='$VERSION';
-            delete p.private;
+            p.private=false;
             require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2)+'\n')
           "
 
-          # Sync version to workspace packages (for local consistency)
           for dir in packages/core packages/cli; do
             node -e "
               const p=require('./$dir/package.json');
@@ -70,20 +97,24 @@ jobs:
             "
           done
 
-          # Publish only the root package (workspace packages are NOT published separately)
-          npm publish --access public
-
-          # Restore private: true to root
-          node -e "
-            const p=require('./package.json');
-            p.private=true;
-            require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2)+'\n')
-          "
+          # Sólo se publica el paquete raíz; packages/* son workspaces internos.
+          npm publish --access public --tag "${{ steps.meta.outputs.npm_tag }}"
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify published dist-tags
+        run: npm view @johpaz/hive-sdk dist-tags
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ github.ref_name }}" --title "Release ${{ github.ref_name }}" --notes "See CHANGELOG.md for details." --draft=false
+        run: |
+          PRERELEASE=""
+          if [ "${{ steps.meta.outputs.npm_tag }}" != "latest" ]; then
+            PRERELEASE="--prerelease"
+          fi
+          gh release create "${{ github.ref_name }}" \
+            --title "Release ${{ github.ref_name }}" \
+            --notes "See CHANGELOG.md for details." \
+            $PRERELEASE

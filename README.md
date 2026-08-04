@@ -1,30 +1,26 @@
-# Documentación — Hive SDK
+# @johpaz/hive-sdk
 
-> **Hive Agent Harness SDK** — Build, deploy, and scale AI agent applications with multi-channel support, Bun Workers, and swarm orchestration.
+> **Hive Agent Harness SDK** — construí, desplegá y escalá aplicaciones de agentes de IA, con soporte multi-canal, Bun Workers y orquestación en swarm.
 
-## Documentos
+[![npm](https://img.shields.io/npm/v/@johpaz/hive-sdk)](https://www.npmjs.com/package/@johpaz/hive-sdk)
 
-| Documento | Descripción |
-|-----------|-------------|
-| [API-AGENTS.md](docs/API-AGENTS.md) | createAgent, AgentLoop, Tool/Skill Selector, LLM Providers |
-| [API-DAG-SCHEDULER.md](docs/API-DAG-SCHEDULER.md) | DAGScheduler, TaskGraph, TaskNode, Estrategias, Presets |
-| [API-WORKERS-EVENTS.md](docs/API-WORKERS-EVENTS.md) | **Bun Workers**, createWorker, WorkerPool, AgentBus, EventBus, Canvas |
-| [API-TOOLS-SKILLS-CHANNELS.md](docs/API-TOOLS-SKILLS-CHANNELS.md) | Tools, Skills, MCP, **Gateway**, **Channels**, **Tool Runtime**, Storage |
-| [API-CONTEXT-COMPILER.md](docs/API-CONTEXT-COMPILER.md) | Context Compiler, Message History, Scratchpad, EthicsGuard, ACE |
-| [TEMPLATE-HIVE-APP.md](docs/TEMPLATE-HIVE-APP.md) | **Template hive-app** — estructura, opciones, personalización |
+```bash
+bun add @johpaz/hive-sdk
+```
 
 ## ¿Qué es Hive SDK?
 
 **Hive SDK es un Agent Harness**: un marco de trabajo completo para construir, desplegar y escalar aplicaciones de agentes de IA. A diferencia de un simple wrapper de LLM, un *harness* provee todo lo necesario para que un agente opere en producción:
 
-- **Agentes**: ciclo ReAct, selección dinámica de tools/skills vía FTS5, múltiples providers (OpenAI, Anthropic, Gemini, Ollama).
-- **Tools**: 70+ tools incluidas — filesystem, web search, browser automation (`agent-browser`), APIs (`api_request`), canvas, voz, office, cron.
-- **Skills**: workflows reutilizables con `defineSkill` y `SkillLoader`.
+- **Agentes**: ciclo ReAct nativo con checkpoint durable, 16 providers LLM y descubrimiento de tools/skills por búsqueda BM25.
+- **Catálogo**: 18 providers y 106 modelos sembrados, cada uno con su precio por millón de tokens — una sola fuente de verdad para el costo.
+- **Tools**: 58 tools incluidas — filesystem, web search, browser automation (`agent-browser`), APIs (`api_request`), a2ui, office, cron, delegación.
+- **Skills**: 23 workflows bundled, más los tuyos con `defineSkill` y `SkillLoader`.
 - **Canales**: Telegram, Discord, WhatsApp, Slack y WebChat con `ChannelManager`.
 - **Swarm**: orquestación multi-agente con `DAGScheduler`, `TaskGraph` y `WorkerPool`.
 - **Runtime**: ejecución paralela de tools vía Bun Workers.
 - **Gateway**: servidor HTTP/WebSocket para exponer agentes como API.
-- **Memoria y estado**: SQLite + FTS5, scratchpad, context compiler.
+- **Memoria y estado**: HiveDB (colecciones + índice BM25), scratchpad, context compiler con compactación.
 
 Con Hive SDK no montas un agente desde cero: **enganchas tu lógica de negocio en un harness ya armado**.
 
@@ -67,23 +63,30 @@ bun run dev
 
 ```typescript
 import { createAgent, defineTool } from "@johpaz/hive-sdk";
+import { z } from "zod";
 
 const tool = defineTool({
   name: "saludar",
-  description: "Saluda a alguien",
+  description: "Saluda a alguien por su nombre",
+  schema: z.object({ nombre: z.string().describe("a quién saludar") }),
   execute: async (args: { nombre: string }) => `¡Hola ${args.nombre}!`,
 });
 
 const agent = await createAgent({
   name: "asistente",
-  provider: "openai",
-  model: "gpt-4o-mini",
+  provider: "openai",       // cualquiera de los 16 del catálogo
+  model: "gpt-5.6-luna",    // tiene que existir en el catálogo sembrado
   tools: [tool],
 });
 
 const respuesta = await agent.run("Saluda a Juan");
 console.log(respuesta);
 ```
+
+`createAgent` abre HiveDB, siembra el catálogo de providers y modelos, persiste
+la configuración en la fila del agente y deja tus tools indexadas para que el
+modelo pueda descubrirlas. El `schema` de Zod es lo que se traduce a los
+parámetros que ve el LLM — sin él, la tool se ofrece sin argumentos.
 
 ### 3. Crear un worker especializado
 
@@ -135,13 +138,24 @@ console.log(`Gateway at http://127.0.0.1:18790`);
 ## Variables de Entorno
 
 ```bash
-HIVE_DATA_DIR=./data          # Directorio de datos SQLite
+HIVE_HOME=~/.hive             # Directorio de datos (HiveDB vive en <HIVE_HOME>/data)
+HIVE_DB_PATH=                 # Ruta explícita de la base; ":memory:" para efímera
 HIVE_HOST=127.0.0.1           # Gateway host
 HIVE_PORT=18790               # Gateway port
-OPENAI_API_KEY=sk-...         # OpenAI
-ANTHROPIC_API_KEY=sk-ant-...  # Anthropic
-GOOGLE_API_KEY=...            # Gemini
 LOG_LEVEL=info                # debug | info | warn | error
+```
+
+La API key de cada provider se guarda cifrada en la base. Como alternativa, el
+SDK cae a `<PROVIDER>_API_KEY` del entorno, en mayúsculas y con el id del
+provider tal cual:
+
+```bash
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=...            # provider "gemini"
+MODELSCOPE_API_KEY=ms-...
+NVIDIA_API_KEY=nvapi-...
+OPENROUTER_API_KEY=sk-or-...
 ```
 
 ## Tests
@@ -154,7 +168,48 @@ bun test
 bun test --timeout 60000
 ```
 
+La suite usa una base efímera (`HIVE_DB_PATH=":memory:"`, fijado en
+`test/preload.ts`) para no escribir en la del usuario.
 
+## Publicar
 
+```bash
+# 1. Actualizar archivos, sin tocar git — revisá el diff
+bun run version:set 0.1.6
 
-*Documentación Hive SDK v0.0.18*
+# 2. Cuando estés conforme: typecheck + tests + commit + tag + push
+bun run version:set 0.1.6 --push
+
+# Preview que no se instala por defecto
+bun run version:set 0.2.0-rc.1 --push --npm-tag=next
+```
+
+`--push` corre `typecheck` y `bun test` antes de tocar git, y pide confirmación
+explícita. El tag `vX.Y.Z` es lo que dispara `.github/workflows/publish.yml`, que
+publica **sólo el paquete raíz** (`packages/*` son workspaces internos). El
+dist-tag viaja en el mensaje del tag, así que `--npm-tag=next` publica bajo `next`
+y no mueve `latest`.
+
+El script aborta si la versión ya existe en npm — republicar da 403 — y si el tag
+local ya existe.
+
+```bash
+npm view @johpaz/hive-sdk dist-tags   # verificar después del release
+```
+
+## Documentación
+
+| Documento | Descripción |
+|-----------|-------------|
+| [API-AGENTS.md](docs/API-AGENTS.md) | createAgent, AgentLoop, Tool/Skill Selector, los 16 LLM Providers |
+| [API-CONTEXT-COMPILER.md](docs/API-CONTEXT-COMPILER.md) | Context Compiler, historial, Scratchpad, EthicsGuard, ACE |
+| [API-TOOLS-SKILLS-CHANNELS.md](docs/API-TOOLS-SKILLS-CHANNELS.md) | Tools, Skills, MCP, Gateway, Channels, Tool Runtime, Storage |
+| [API-DAG-SCHEDULER.md](docs/API-DAG-SCHEDULER.md) | DAGScheduler, TaskGraph, TaskNode, estrategias, presets |
+| [API-WORKERS-EVENTS.md](docs/API-WORKERS-EVENTS.md) | Bun Workers, createWorker, WorkerPool, AgentBus, EventBus, Canvas |
+| [HIVE-HARNESS.md](docs/HIVE-HARNESS.md) | Ejecución durable: cola de jobs, checkpoints, leases, proof packets |
+| [TEMPLATE-HIVE-APP.md](docs/TEMPLATE-HIVE-APP.md) | Template `hive-app` — estructura, opciones, personalización |
+| [CHANGELOG.md](CHANGELOG.md) | Cambios por versión |
+
+---
+
+*Hive SDK v0.1.5 — MIT*

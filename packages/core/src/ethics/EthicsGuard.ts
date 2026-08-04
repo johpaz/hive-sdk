@@ -1,66 +1,70 @@
+/**
+ * EthicsGuard — capa de reglas de calidad de respuesta sobre el system prompt.
+ *
+ * Lee las reglas `category: "response_quality"` de la colección `playbook`.
+ * Hasta 0.1.5 esta clase recibía un handle de SQLite y armaba SQL a mano
+ * (incluyendo un JOIN contra la tabla virtual `playbook_fts`); esas tablas ya no
+ * existen. Ahora la fuente es HiveDB, igual que para el resto del catálogo.
+ *
+ * Nota: la ética "constitucional" de un agente no pasa por acá — vive en la
+ * colección `ethics` y la ensambla `agent/prompt-builder.ts` como primera
+ * sección del prompt. Este guard es un complemento opcional para hosts que
+ * quieran inyectar reglas aprendidas por ACE.
+ */
+
+import { col } from "../storage/hive.ts";
+import type { PlaybookDoc } from "../storage/collections.ts";
+
 export interface EthicsRule {
-	id: number;
+	id: string;
 	rule: string;
 	category: string;
-	applicable_to: string;
+	applicable_to: string | null;
 	helpful_count: number;
-	active: number;
+	active: boolean;
+}
+
+const RESPONSE_QUALITY = "response_quality";
+
+function byUsefulness(a: EthicsRule, b: EthicsRule): number {
+	return b.helpful_count - a.helpful_count;
 }
 
 export class EthicsGuard {
-	private db: any;
+	/**
+	 * Reglas activas de calidad de respuesta.
+	 *
+	 * Con `agentRole` filtra por las que lo declaran en `applicable_to`; si
+	 * ninguna coincide devuelve todas, para no dejar al agente sin capa por un
+	 * `applicable_to` mal cargado.
+	 */
+	async getRules(agentRole?: string): Promise<EthicsRule[]> {
+		const playbookCol = await col<PlaybookDoc>("playbook");
+		const all = (await playbookCol.scan({}))
+			.map((e) => ({
+				id: e.id,
+				rule: e.doc.rule,
+				category: e.doc.category,
+				applicable_to: e.doc.applicable_to,
+				helpful_count: e.doc.helpful_count ?? 0,
+				active: e.doc.active,
+			}))
+			.filter((r) => r.active && r.category === RESPONSE_QUALITY)
+			.sort(byUsefulness);
 
-	constructor(db: any) {
-		this.db = db;
-	}
+		if (!agentRole) return all;
 
-	getRules(agentRole?: string): EthicsRule[] {
-		if (!agentRole) {
-			return this.db
-				.query(
-					`SELECT p.* FROM playbook p
-           WHERE p.category = 'response_quality' AND p.active = 1
-           ORDER BY p.helpful_count DESC`
-				)
-				.all() as EthicsRule[];
-		}
-
-		try {
-			const ftsRows = this.db
-				.query(
-					`SELECT p.* FROM playbook p
-           JOIN playbook_fts fts ON p.rowid = fts.rowid
-           WHERE fts.playbook_fts MATCH ?
-           AND p.category = 'response_quality' AND p.active = 1
-         ORDER BY p.helpful_count DESC`,
-					[agentRole]
-				)
-				.all() as EthicsRule[];
-
-			if (ftsRows.length > 0) return ftsRows;
-		} catch {}
-
-		return this.db
-			.query(
-				`SELECT * FROM playbook
-         WHERE category = 'response_quality' AND active = 1
-         ORDER BY helpful_count DESC`
-			)
-			.all() as EthicsRule[];
+		const matching = all.filter((r) => (r.applicable_to ?? "").includes(agentRole));
+		return matching.length > 0 ? matching : all;
 	}
 
 	injectIntoPrompt(systemPrompt: string, rules: EthicsRule[]): string {
 		if (rules.length === 0) return systemPrompt;
-		const ethicsSection = rules
-			.map(r => `- ${r.rule}`)
-			.join("\n");
+		const ethicsSection = rules.map((r) => `- ${r.rule}`).join("\n");
 		return `${systemPrompt}\n\n## Reglas de Calidad de Respuesta\n${ethicsSection}`;
 	}
 
-	hasEthicsLayer(): boolean {
-		const count = this.db
-			.query(`SELECT COUNT(*) as c FROM playbook WHERE category = 'response_quality' AND active = 1`)
-			.get() as any;
-		return (count?.c ?? 0) > 0;
+	async hasEthicsLayer(): Promise<boolean> {
+		return (await this.getRules()).length > 0;
 	}
 }

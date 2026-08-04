@@ -1,16 +1,21 @@
 /**
- * Agents Tools - 14 tools
- * 
+ * Agents Tools - 15 tools
+ *
  * @category agents
  */
 
 import type { Tool } from "../types.ts";
-import { getDb } from "../../storage/SQLiteStorage.ts";
-import { getHiveDB } from "../../storage/HiveDBStorage.ts";
-import type { HiveModelDoc, HiveProviderDoc, HiveAgentDoc } from "../../storage/hiveSeed.ts";
+import { col, toIndexable, fromIndexable, BROADCAST } from "../../storage/hive.ts";
+import type { MemoryDoc, AgentDoc, ProviderDoc, ModelDoc, McpServerDoc, TaskDoc, AgentBusMessageDoc, AgentAcceptanceCriterion } from "../../storage/collections.ts";
+import type { AcceptanceCriterion } from "../../agent/run-store.ts";
+import type { PreparedDelegation } from "../../agent/delegation-runtime.ts";
 import { logger } from "../../utils/logger.ts";
-import { agentBus } from "../../swarm/AgentBus.ts";
-import { emitCanvas } from "../../canvas/emitter.ts";
+import { agentBus } from "../../events/agent-bus.ts";
+import {
+  emitDelegationStarted,
+  emitDelegationFinished,
+  emitWorkEvent,
+} from "../../canvas/emitter.ts";
 
 const log = logger.child("agents");
 
@@ -28,15 +33,20 @@ export const memoryWriteTool: Tool = {
     required: ["title", "content"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = await getHiveDB();
     const title = params.title as string;
     const content = params.content as string;
 
     try {
-      const notesCol = db.collection<{ title: string; content: string; createdAt: number; updatedAt: number }>("notes");
-      const id = crypto.randomUUID();
+      const memoryCol = await col<MemoryDoc>("memory");
+      const existing = await memoryCol.get(title);
       const now = Date.now();
-      await notesCol.put(id, { title, content, createdAt: now, updatedAt: now });
+      await memoryCol.put(title, {
+        id: title,
+        title,
+        content,
+        created_at: existing?.doc.created_at ?? now,
+        updated_at: now,
+      }, existing ? { expectedVersion: existing.version } : { expectedVersion: 0 });
 
       return { ok: true, title, message: "Memory saved." };
     } catch (error) {
@@ -58,24 +68,22 @@ export const memoryReadTool: Tool = {
     required: ["title"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = await getHiveDB();
     const title = params.title as string;
 
     try {
-      const notesCol = db.collection<{ title: string; content: string; createdAt: number; updatedAt: number }>("notes");
-      const entries = await notesCol.scan();
-      const note = entries.find(e => e.doc.title === title)?.doc;
+      const memoryCol = await col<MemoryDoc>("memory");
+      const entry = await memoryCol.get(title);
 
-      if (!note) {
+      if (!entry) {
         return { ok: false, error: `Memory not found: ${title}` };
       }
 
       return {
         ok: true,
-        title: note.title,
-        content: note.content,
-        createdAt: new Date(note.createdAt).toISOString(),
-        updatedAt: new Date(note.updatedAt).toISOString(),
+        title: entry.doc.title,
+        content: entry.doc.content,
+        createdAt: new Date(entry.doc.created_at).toISOString(),
+        updatedAt: new Date(entry.doc.updated_at).toISOString(),
       };
     } catch (error) {
       return { ok: false, error: `Failed to read memory: ${(error as Error).message}` };
@@ -93,19 +101,16 @@ export const memoryListTool: Tool = {
     properties: {},
   },
   execute: async () => {
-    const db = await getHiveDB();
-
     try {
-      const notesCol = db.collection<{ title: string; content: string; createdAt: number; updatedAt: number }>("notes");
-      const entries = await notesCol.scan();
-      const notes = entries
+      const memoryCol = await col<MemoryDoc>("memory");
+      const notes = (await memoryCol.scan({}))
         .map(e => e.doc)
-        .sort((a, b) => b.updatedAt - a.updatedAt);
+        .sort((a, b) => b.updated_at - a.updated_at);
 
       return {
         ok: true,
         count: notes.length,
-        entries: notes.map((n) => ({ title: n.title, createdAt: new Date(n.createdAt).toISOString() })),
+        entries: notes.map((n) => ({ title: n.title, createdAt: new Date(n.created_at).toISOString() })),
       };
     } catch (error) {
       return { ok: false, error: `Failed to list memories: ${(error as Error).message}` };
@@ -126,15 +131,14 @@ export const memorySearchTool: Tool = {
     required: ["query"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = await getHiveDB();
-    const query = (params.query as string).toLowerCase();
+    const query = params.query as string;
+    const needle = query.toLowerCase();
 
     try {
-      const notesCol = db.collection<{ title: string; content: string; createdAt: number; updatedAt: number }>("notes");
-      const entries = await notesCol.scan();
-      const notes = entries
+      const memoryCol = await col<MemoryDoc>("memory");
+      const notes = (await memoryCol.scan({}))
         .map(e => e.doc)
-        .filter(n => n.title.toLowerCase().includes(query) || n.content.toLowerCase().includes(query));
+        .filter(n => n.content.toLowerCase().includes(needle) || n.title.toLowerCase().includes(needle));
 
       return {
         ok: true,
@@ -164,19 +168,18 @@ export const memoryDeleteTool: Tool = {
     required: ["title"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = await getHiveDB();
     const title = params.title as string;
 
     try {
-      const notesCol = db.collection<{ title: string; content: string; createdAt: number; updatedAt: number }>("notes");
-      const entries = await notesCol.scan();
-      const target = entries.find(e => e.doc.title === title);
+      const memoryCol = await col<MemoryDoc>("memory");
+      const existing = await memoryCol.get(title);
 
-      if (!target) {
+      if (!existing) {
         return { ok: false, error: `Memory not found: ${title}` };
       }
 
-      await notesCol.delete(target.id);
+      await memoryCol.delete(title);
+
       return { ok: true, title, message: "Memory deleted." };
     } catch (error) {
       return { ok: false, error: `Failed to delete memory: ${(error as Error).message}` };
@@ -188,7 +191,7 @@ export const memoryDeleteTool: Tool = {
 
 export const agentCreateTool: Tool = {
   name: "agent_create",
-  description: "Crear un nuevo agente worker especializado. Requiere consultar get_available_models primero para seleccionar provider/model óptimos. Sinónimos: crear agente, nuevo worker, nuevo trabajador",
+  description: "Crear un nuevo agente worker especializado. Requiere consultar get_available_models; para un especialista MCP confirmado por el usuario, acepta mcp_server_id. Sinónimos: crear agente, nuevo worker, nuevo trabajador",
   parameters: {
     type: "object",
     properties: {
@@ -198,100 +201,157 @@ export const agentCreateTool: Tool = {
       tools_json: { type: "array", description: "Lista de IDs de herramientas", items: { type: "string" } },
       providerId: { type: "string", description: "ID del provider (openai, anthropic, ollama, etc.) - Obtener de get_available_models" },
       modelId: { type: "string", description: "ID del modelo (gpt-4o, claude-sonnet, etc.) - Obtener de get_available_models" },
+      mcp_server_id: {
+        type: "string",
+        description: "Servidor MCP persistente para un especialista. Requiere confirmación previa del usuario y asigna todas las tools actuales y futuras de ese servidor.",
+      },
       tone: { type: "string", description: "Tono del agente (friendly, professional, direct, etc.)" },
       max_iterations: { type: "number", description: "Límite de iteraciones del agente (default: 10)" },
     },
     required: ["name", "providerId", "modelId"],
   },
   execute: async (params: Record<string, unknown>, config?: any) => {
-    const db = await getHiveDB();
     const userId = config?.configurable?.user_id;
-    const parentId = config?.configurable?.agent_id ?? undefined;
+    const parentId = config?.configurable?.agent_id ?? null;
     const name = params.name as string;
     const description = (params.description as string) ?? "";
     const systemPrompt = (params.system_prompt as string) ?? "";
-    const toolsJson = params.tools_json ? JSON.stringify(params.tools_json) : undefined;
+    const toolsJson = params.tools_json ? JSON.stringify(params.tools_json) : null;
     const providerId = params.providerId as string;
     const modelId = params.modelId as string;
+    const mcpServerId = params.mcp_server_id as string | undefined;
     const tone = (params.tone as string) ?? "friendly";
     const maxIterations = (params.max_iterations as number) ?? 10;
-    const parentWorkspace = config?.configurable?.workspace ?? undefined;
+    const parentWorkspace = config?.configurable?.workspace ?? null;
 
+    // Validar que providerId y modelId sean obligatorios
     if (!providerId || !modelId) {
-      return { 
-        ok: false, 
-        error: "providerId y modelId son obligatorios. Usá get_available_models para consultar los modelos disponibles antes de crear el agente." 
+      return {
+        ok: false,
+        error: "providerId y modelId son obligatorios. Usá get_available_models para consultar los modelos disponibles antes de crear el agente."
       };
     }
 
-    const providersCol = db.collection<HiveProviderDoc>("providers");
-    const modelsCol = db.collection<HiveModelDoc>("models");
-
-    const [providerEntry, modelEntry] = await Promise.all([
-      providersCol.get(providerId),
-      modelsCol.get(modelId),
-    ]);
+    // Validar que el provider existe y está activo
+    const providersCol = await col<ProviderDoc>("providers");
+    const providerEntry = await providersCol.get(providerId);
 
     if (!providerEntry) {
-      return { 
-        ok: false, 
-        error: `Provider '${providerId}' no existe. Usá get_available_models para ver providers disponibles.` 
-      };
-    }
-    if (!providerEntry.doc.enabled || !providerEntry.doc.active) {
-      return { 
-        ok: false, 
-        error: `Provider '${providerId}' no está activo. Usá get_available_models para ver providers activos.` 
+      return {
+        ok: false,
+        error: `Provider '${providerId}' no existe. Usá get_available_models para ver providers disponibles.`
       };
     }
 
-    if (!modelEntry) {
-      return { 
-        ok: false, 
-        error: `Modelo '${modelId}' no existe. Usá get_available_models para ver modelos disponibles.` 
+    if (!providerEntry.doc.enabled || !providerEntry.doc.active) {
+      return {
+        ok: false,
+        error: `Provider '${providerId}' no está activo. Usá get_available_models para ver providers activos.`
       };
     }
-    if (!modelEntry.doc.enabled || !modelEntry.doc.active) {
-      return { 
-        ok: false, 
-        error: `Modelo '${modelId}' no está activo. Usá get_available_models para ver modelos activos.` 
+
+    // Validar que el modelo existe y pertenece al provider ya validado. `active` en un
+    // ModelDoc solo marca el modelo por defecto del usuario (elegido en onboarding), no
+    // si el modelo es utilizable — cualquier modelo del provider configurado sirve.
+    const modelsCol = await col<ModelDoc>("models");
+    const modelEntry = await modelsCol.get(modelId);
+
+    if (!modelEntry) {
+      return {
+        ok: false,
+        error: `Modelo '${modelId}' no existe. Usá get_available_models para ver modelos disponibles.`
       };
+    }
+
+    if (!modelEntry.doc.enabled) {
+      return {
+        ok: false,
+        error: `Modelo '${modelId}' no está habilitado. Usá get_available_models para ver modelos disponibles.`
+      };
+    }
+
+    if (modelEntry.doc.provider_id !== providerId) {
+      return {
+        ok: false,
+        error: `Modelo '${modelId}' pertenece al provider '${modelEntry.doc.provider_id}', no a '${providerId}'.`
+      };
+    }
+
+    if (mcpServerId) {
+      if (!userId) {
+        return { ok: false, error: "No se puede asignar un servidor MCP sin contexto de usuario." };
+      }
+      const serverEntry = await (await col<McpServerDoc>("mcpServers")).get(mcpServerId);
+      if (!serverEntry?.doc.enabled) {
+        return { ok: false, error: `El servidor MCP '${mcpServerId}' no existe o está deshabilitado.` };
+      }
+      if (serverEntry.doc.user_id && serverEntry.doc.user_id !== userId) {
+        return { ok: false, error: `El servidor MCP '${mcpServerId}' pertenece a otro usuario.` };
+      }
+
+      const existingSpecialist = (await (await col<AgentDoc>("agents")).scan({}))
+        .map((entry) => entry.doc)
+        .find((agent) => {
+          if (agent.role !== "worker" || agent.user_id !== userId) return false;
+          try {
+            return agent.mcp_server_ids_json
+              ? (JSON.parse(agent.mcp_server_ids_json) as string[]).includes(mcpServerId)
+              : false;
+          } catch {
+            return false;
+          }
+        });
+      if (existingSpecialist) {
+        const action = existingSpecialist.enabled
+          ? "Reutilizalo con task_delegate."
+          : "Está deshabilitado; el usuario debe reactivarlo desde Agentes.";
+        return {
+          ok: false,
+          existingAgentId: existingSpecialist.id,
+          error: `Ya existe el especialista '${existingSpecialist.name}' para ese servidor. ${action}`,
+        };
+      }
     }
 
     try {
       const agentId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-      const agentsCol = db.collection<HiveAgentDoc>("agents");
       const now = Date.now();
 
+      const agentsCol = await col<AgentDoc>("agents");
       await agentsCol.put(agentId, {
         id: agentId,
-        userId,
+        user_id: userId ?? "",
         name,
         description,
-        systemPrompt,
-        toolsJson,
+        system_prompt: systemPrompt,
+        tone,
         role: "worker",
         status: "idle",
-        parentId,
+        enabled: true,
+        provider_id: toIndexable(providerId),
+        model_id: toIndexable(modelId),
+        tools_json: toolsJson,
+        skills_json: null,
+        active_mcp_json: null,
+        parent_id: toIndexable(parentId),
+        max_iterations: maxIterations,
+        workspace: parentWorkspace,
+        lastTraceAt: null,
+        created_at: now,
+        updated_at: now,
+        source: "user",
+        mcp_server_ids_json: mcpServerId ? JSON.stringify([mcpServerId]) : null,
+      }, { expectedVersion: 0 });
+
+      return {
+        ok: true,
+        agentId,
+        name,
         providerId,
         modelId,
-        tone,
-        maxIterations,
+        mcpServerId: mcpServerId ?? null,
         workspace: parentWorkspace,
-        enabled: true,
-        active: true,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      return { 
-        ok: true, 
-        agentId, 
-        name, 
-        providerId, 
-        modelId,
-        workspace: parentWorkspace,
-        message: "Agente creado exitosamente." 
+        message: "Agente creado exitosamente."
       };
     } catch (error) {
       return { ok: false, error: `Failed to create agent: ${(error as Error).message}` };
@@ -303,49 +363,81 @@ export const agentCreateTool: Tool = {
 
 export const agentFindTool: Tool = {
   name: "agent_find",
-  description: "Find existing running or idle worker agents. Spanish: buscar agente, encontrar worker, localizar agente",
+  description: "Discover available worker agents. Includes global system catalog agents plus private workers owned by the current user. This tool does not report task execution; use task_list/task_status for that. Spanish: buscar agente, encontrar worker, localizar agente",
   parameters: {
     type: "object",
     properties: {
       search: { type: "string", description: "Search term for agent name or description" },
-      status: { type: "string", enum: ["idle", "active", "any"], description: "Filter by status" },
+      availability: { type: "string", enum: ["enabled", "disabled", "any"], description: "Filter by whether the worker can accept tasks" },
+      status: { type: "string", enum: ["idle", "active", "any"], description: "Deprecated compatibility alias. It does not represent task execution; use task_list." },
     },
   },
   execute: async (params: Record<string, unknown>, config?: any) => {
-    const db = await getHiveDB();
     const userId = config?.configurable?.user_id;
     const search = params.search as string | undefined;
-    const status = params.status as string | undefined;
+    const legacyStatus = params.status as string | undefined;
+    const availability = (params.availability as string | undefined)
+      ?? (legacyStatus === "any" ? "any" : legacyStatus ? "enabled" : "any");
 
     try {
-      const agentsCol = db.collection<HiveAgentDoc>("agents");
-      const entries = await agentsCol.scan();
-
-      let agents = entries
+      const agentsCol = await col<AgentDoc>("agents");
+      const mcpServersCol = await col<McpServerDoc>("mcpServers");
+      const serverNames = new Map(
+        (await mcpServersCol.scan({})).map((entry) => [entry.doc.id, entry.doc.name]),
+      );
+      let agents = (await agentsCol.scan({}))
         .map(e => e.doc)
-        .filter(a => a.userId === userId && a.role === "worker");
+        .filter(a =>
+          a.role === "worker"
+          && (a.source === "catalog" || (!!userId && a.user_id === userId))
+        );
 
       if (search) {
-        const s = search.toLowerCase();
-        agents = agents.filter(a =>
-          a.name.toLowerCase().includes(s) || a.description.toLowerCase().includes(s)
-        );
+        const needle = search.toLowerCase();
+        agents = agents.filter((a) => {
+          let assignedServerIds: string[] = [];
+          try {
+            assignedServerIds = a.mcp_server_ids_json ? JSON.parse(a.mcp_server_ids_json) : [];
+          } catch {
+            assignedServerIds = [];
+          }
+          return a.name.toLowerCase().includes(needle)
+            || (a.description ?? "").toLowerCase().includes(needle)
+            || assignedServerIds.some((id) =>
+              id.toLowerCase().includes(needle)
+              || (serverNames.get(id) ?? "").toLowerCase().includes(needle),
+            );
+        });
       }
 
-      if (status && status !== "any") {
-        agents = agents.filter(a => a.status === status);
+      if (availability !== "any") {
+        agents = agents.filter(a => availability === "enabled" ? a.enabled : !a.enabled);
       }
 
       return {
         ok: true,
         count: agents.length,
-        agents: agents.map((a) => ({
-          id: a.id,
-          name: a.name,
-          description: a.description,
-          role: a.role,
-          status: a.status,
-        })),
+        execution_source: "Use task_list or task_status for real execution state.",
+        ...(legacyStatus ? { warning: "The status filter is deprecated and cannot prove whether a task is running." } : {}),
+        agents: agents.map((a) => {
+          let mcpServerIds: string[] = [];
+          try {
+            mcpServerIds = a.mcp_server_ids_json ? JSON.parse(a.mcp_server_ids_json) : [];
+          } catch {
+            mcpServerIds = [];
+          }
+          return {
+            id: a.id,
+            name: a.name,
+            description: a.description,
+            role: a.role,
+            source: a.source ?? "user",
+            enabled: a.enabled,
+            availability: a.enabled ? "enabled" : "disabled",
+            mcpServerIds,
+            mcpServers: mcpServerIds.map((id) => ({ id, name: serverNames.get(id) ?? id })),
+          };
+        }),
       };
     } catch (error) {
       return { ok: false, error: `Failed to find agents: ${(error as Error).message}` };
@@ -357,27 +449,36 @@ export const agentFindTool: Tool = {
 
 export const agentArchiveTool: Tool = {
   name: "agent_archive",
-  description: "Archive or terminate a worker agent. Spanish: archivar agente, terminar worker, desactivar agente",
+  description: "Archive or terminate a worker you created. Catalog agents cannot be archived — only the user can disable those from the UI. Spanish: archivar agente, terminar worker",
   parameters: {
     type: "object",
     properties: {
-      agentId: { type: "string", description: "ID of the agent to archive" },
+      agentId: { type: "string", description: "ID of the worker to archive (not a catalog agent)" },
     },
     required: ["agentId"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = await getHiveDB();
     const agentId = params.agentId as string;
 
     try {
-      const agentsCol = db.collection<HiveAgentDoc>("agents");
-      const entry = await agentsCol.get(agentId);
+      const agentsCol = await col<AgentDoc>("agents");
+      const existing = await agentsCol.get(agentId);
 
-      if (!entry) {
+      if (!existing) {
         return { ok: false, error: `Agent not found: ${agentId}` };
       }
 
-      await agentsCol.put(agentId, { ...entry.doc, enabled: false, updatedAt: Date.now() });
+      // Catalog personas are shared capabilities of the whole hive — turning
+      // one off is the user's call, from the UI, never an agent's.
+      if (existing.doc.source === "catalog") {
+        return {
+          ok: false,
+          error: `'${existing.doc.name}' is a catalog agent and stays available. Only the user can disable it from the Agents UI.`,
+        };
+      }
+
+      await agentsCol.put(agentId, { ...existing.doc, enabled: false, status: "archived", updated_at: Date.now() }, { expectedVersion: existing.version });
+
       return { ok: true, agentId, message: "Agent archived." };
     } catch (error) {
       return { ok: false, error: `Failed to archive agent: ${(error as Error).message}` };
@@ -389,144 +490,563 @@ export const agentArchiveTool: Tool = {
 
 export const taskDelegateTool: Tool = {
   name: "task_delegate",
-  description: "Delegate a task to a worker agent and execute it immediately (blocking). Spanish: delegar tarea, asignar worker, ejecutar por agente, delegate_task",
+  description: "Delegate a bounded task to an existing worker_id (any `agents` row: catalog-seeded or agent_create-made). The delivery goes through deterministic acceptance checks (no LLM); you judge anything they don't cover in your closing turn, and use task_revise to send it back with feedback if it doesn't meet its criteria. mode=sync blocks the conversation until done; mode=async enqueues and frees the conversation immediately — the user is notified automatically in this same chat when the worker finishes. Prefer async unless you expect the result in a few seconds.",
   parameters: {
     type: "object",
     properties: {
-      worker_id: { type: "string", description: "ID of the worker agent" },
+      worker_id: { type: "string", description: "Target agent ID — from agent_find or the catalog agent list in the system prompt." },
       task_description: { type: "string", description: "Clear, detailed instructions for the worker" },
-      task_id: { type: "number", description: "Optional task DB ID to update status automatically" },
-      project_id: { type: "string", description: "Optional project ID for progress tracking" },
+      acceptance: {
+        type: "array",
+        description: "Verifiable acceptance criteria. The worker's default criteria are used when omitted.",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            description: { type: "string" },
+            checkTool: { type: "string" },
+          },
+          required: ["id", "description"],
+        },
+      },
+      mode: { type: "string", enum: ["sync", "async"], description: "sync (default, blocking, 2min timeout — only for very short delegations) or async (enqueued, frees the conversation instantly; outcome is relayed back to the user automatically). Prefer async for anything non-trivial." },
     },
-    required: ["worker_id", "task_description"],
+    required: ["task_description"],
   },
   execute: async (params: Record<string, unknown>, config?: any) => {
-    const db = getDb();
-    const workerId = params.worker_id as string;
+    const agentId = params.worker_id as string | undefined;
     const taskDescription = params.task_description as string;
-    const taskId = params.task_id as number | undefined;
-    const projectId = params.project_id as string | undefined;
+    const mode = (params.mode as string) ?? "sync";
+    const turnId = config?.configurable?.turn_id as string | undefined;
 
-    // Verify worker exists and is enabled
-    const worker = db.query<any, [string]>(
-      "SELECT id, name, enabled FROM agents WHERE id = ?"
-    ).get(workerId);
+    if (!agentId) return { ok: false, error: "Provide worker_id." };
 
-    if (!worker) {
-      return { ok: false, error: `Worker not found: ${workerId}` };
+    const agentsCol = await col<AgentDoc>("agents");
+    const parentAgentId = config?.configurable?.agent_id ?? "";
+    if (!parentAgentId) {
+      return { ok: false, error: "Delegation caller identity is missing (config.configurable.agent_id). The coordinator may exist, but its ID was not propagated to task_delegate." };
     }
-    if (!worker.enabled) {
-      return { ok: false, error: `Worker is disabled: ${worker.name}` };
-    }
+    const parentEntry = await agentsCol.get(parentAgentId);
+    if (!parentEntry) return { ok: false, error: `Delegation caller agent not found: ${parentAgentId}` };
+    if (!parentEntry.doc.enabled) return { ok: false, error: `Delegation caller agent is disabled: ${parentAgentId}` };
+    const parent = parentEntry.doc;
+    const parentProviderId = fromIndexable(parent.provider_id);
+    const parentModelId = fromIndexable(parent.model_id);
 
-    // Fetch task info for bus notifications
-    const taskRow = taskId
-      ? db.query<any, [number]>("SELECT name, project_id FROM tasks WHERE id = ?").get(taskId)
+    const workerEntry = await agentsCol.get(agentId);
+    if (!workerEntry) return { ok: false, error: `Agent not found: ${agentId}` };
+    const worker = workerEntry.doc;
+    if (!worker.enabled) return { ok: false, error: `Agent is disabled: ${worker.name}` };
+
+    const taskName = taskDescription.slice(0, 60);
+    const defaultAcceptance: AgentAcceptanceCriterion[] | null = worker.default_acceptance_json
+      ? JSON.parse(worker.default_acceptance_json)
       : null;
-    const taskName = taskRow?.name ?? taskDescription.slice(0, 60);
-    const resolvedProjectId = projectId ?? taskRow?.project_id ?? "";
+    const acceptance = ((params.acceptance as AcceptanceCriterion[] | undefined)
+      ?? defaultAcceptance?.map((criterion) => ({
+        id: criterion.id,
+        description: criterion.description,
+        checkTool: criterion.check_tool,
+      }))
+      ?? [{ id: "objective", description: taskDescription }]);
 
-    // Mark task in_progress if task_id provided
-    if (taskId) {
-      db.query("UPDATE tasks SET status='in_progress', agent_id=?, updated_at=unixepoch() WHERE id=?")
-        .run(workerId, taskId);
-      emitCanvas("canvas:node_update", { id: taskId.toString(), type: "task", data: { status: "in_progress", agent_id: workerId } });
+    // ── Async mode: create TaskDoc + enqueue worker_task in durable queue ──
+    if (mode === "async") {
+      try {
+        const { nextId, toIndexable, updateDoc } = await import("../../storage/hive.ts");
+        const { createRun } = await import("../../agent/run-store.ts");
+        const { getDurableQueue } = await import("../../gateway/durable-queue.ts");
+
+        const taskId = await nextId("tasks");
+        const now = Date.now();
+        const tasksCol = await col<TaskDoc>("tasks");
+        await tasksCol.put(taskId, {
+          id: taskId,
+          agent_id: toIndexable(agentId),
+          name: taskName,
+          description: taskDescription,
+          status: "pending",
+          progress: 0,
+          result: null,
+          error: null,
+          metadata: null,
+          job_id: null,
+          run_id: null,
+          thread_id: null,
+          delegation_group_id: turnId ?? null,
+          catalog_agent_id: toIndexable(worker.source === "catalog" ? agentId : null),
+          started_at: null,
+          attempts: 0,
+          created_at: now,
+          updated_at: now,
+          completed_at: null,
+        }, { expectedVersion: 0 });
+
+        if (turnId) {
+          const { registerDelegatedTask } = await import("../../gateway/delegation-groups.ts");
+          await registerDelegatedTask({
+            turnId,
+            taskId,
+            threadId: config?.configurable?.thread_id ?? "",
+            channel: config?.configurable?.channel,
+            userId: config?.configurable?.user_id,
+            sessionId: config?.configurable?.session_id,
+            coordinatorAgentId: parentAgentId,
+          });
+        }
+
+        const run = await createRun({
+          thread_id: `task-${taskId}-${agentId}`,
+          agent_id: agentId,
+          user_id: config?.configurable?.user_id ?? "",
+          channel: config?.configurable?.channel ?? null,
+          kind: "worker",
+          max_iterations: worker.max_iterations || 10,
+          resume_policy: "resume",
+          acceptance,
+          catalog_agent_id: worker.source === "catalog" ? agentId : undefined,
+        });
+
+        const queue = getDurableQueue();
+        const job = await queue.enqueue({
+          lane: `task:${taskId}`,
+          type: "worker_task",
+          run_id: run.id,
+          payload: {
+            workerId: agentId,
+            taskDescription,
+            taskName,
+            taskId,
+            acceptance,
+            parentAgentId,
+            parentProviderId,
+            parentModelId,
+            userId: config?.configurable?.user_id ?? "",
+            workspace: config?.configurable?.workspace ?? null,
+            // Delegating conversation's thread — lets delegation-notify.ts relay
+            // the outcome back to the user once this job reaches a terminal state.
+            originThreadId: config?.configurable?.thread_id ?? null,
+            originChannel: config?.configurable?.channel ?? null,
+            originSessionId: config?.configurable?.session_id ?? null,
+            turnId: turnId ?? null,
+          },
+        });
+
+        await updateDoc<TaskDoc>("tasks", taskId, {
+          job_id: job.id,
+          run_id: run.id,
+          thread_id: `task-${taskId}-${agentId}`,
+          updated_at: Date.now(),
+        } as Partial<TaskDoc>);
+
+        agentBus.notifyTaskStarted(agentId, worker.name, 0, taskName, "");
+        if (turnId) {
+          const { publishNarration } = await import("../../events/narration.ts");
+          await publishNarration({
+            turnId,
+            threadId: config?.configurable?.thread_id ?? "",
+            channel: config?.configurable?.channel,
+            userId: config?.configurable?.user_id,
+            sessionId: config?.configurable?.session_id,
+            agentId,
+            agentName: worker.name,
+            kind: "delegated",
+            status: "queued",
+            label: `Delegué “${taskName}” a ${worker.name}`,
+            dedupeKey: `delegated:${taskId}`,
+          });
+        }
+
+        return {
+          ok: true,
+          task_id: taskId,
+          job_id: job.id,
+          run_id: run.id,
+          worker_id: agentId,
+          worker_name: worker.name,
+          status: "queued",
+          message: `Task enqueued (async). Use task_list for the queue or task_status with task_id="${taskId}" for this task.`,
+        };
+      } catch (err) {
+        return { ok: false, error: `Async delegation failed: ${(err as Error).message}` };
+      }
     }
 
-    // Notify Agent Bus: task started
-    agentBus.notifyTaskStarted(workerId, worker.name, taskId ?? 0, taskName, resolvedProjectId);
+    // ── Sync mode: blocking execution with 2min timeout ──
+    const { prepareDelegation } = await import("../../agent/delegation-runtime.ts");
+    const { getMCPManager } = await import("../../mcp/singleton.ts");
+    const mcpManager = getMCPManager();
 
-    log.info(`[task_delegate] Delegating to ${worker.name} (${workerId})`);
+    let prepared: PreparedDelegation;
+    try {
+      prepared = await prepareDelegation(agentId, {
+        workspace: config?.configurable?.workspace ?? null,
+        parentProviderId,
+        parentModelId,
+        mcpManager,
+      });
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+
+    agentBus.notifyTaskStarted(agentId, worker.name, 0, taskName, "");
+    log.info(`[task_delegate] Delegating (sync) to ${worker.name} (${agentId})`);
+    const syncDelegationRef = `sync-${Date.now()}-${agentId}`;
+    emitDelegationStarted({ workerId: agentId, parentAgentId, taskRef: syncDelegationRef, taskName });
 
     try {
-      // Dynamic import to avoid circular dependency (agent-loop → tools → agent-loop)
-      const { runAgentIsolated } = await import("../../agent/AgentRunner.ts");
+      const { runAgentIsolated, withTimeout } = await import("../../agent/agent-loop.ts");
 
-      const threadId = `task-${taskId ?? Date.now()}-${workerId}`;
-      const result = await runAgentIsolated({
-        agentId: workerId,
-        taskDescription,
-        threadId,
+      const threadId = `task-${Date.now()}-${agentId}`;
+      const SYNC_TIMEOUT_MS = 2 * 60 * 1000;
+
+      // Real cancellation (e.g. the user's "stop" button): the job's AbortSignal
+      // reaches us via config.signal (tool-runtime/index.ts's executeToolBatch),
+      // and runAgentIsolated/runAgent already honor it mid-run. withTimeout stays
+      // as a hard ceiling in case the signal path doesn't stop things in time.
+      const signal = config?.signal as AbortSignal | undefined;
+      const result = await withTimeout(
+        () => runAgentIsolated({
+          agentId,
+          taskDescription,
+          threadId,
+          mcpManager,
+          signal,
+        }),
+        SYNC_TIMEOUT_MS,
+      );
+
+      agentBus.notifyTaskCompleted(agentId, worker.name, 0, taskName, "", result);
+
+      // Deterministic acceptance checks now always run, closing the old gap
+      // where a plain worker_id delegation (agent_create) skipped them
+      // entirely in sync mode. No LLM call: the calling agent (usually the
+      // coordinator) judges the delivery itself in this same tool response.
+      const { runAcceptanceChecks, recordAgentOutcome } = await import("../../agent/acceptance-checks.ts");
+      const checks = await runAcceptanceChecks({
+        objective: taskDescription,
+        acceptance,
+        delivery: result,
+        evidence: [result],
       });
-
-      // Update task to completed if task_id provided
-      if (taskId) {
-        db.query(
-          "UPDATE tasks SET status='completed', progress=100, result=?, updated_at=unixepoch() WHERE id=?"
-        ).run(result, taskId);
-        emitCanvas("canvas:node_update", { id: taskId.toString(), type: "task", data: { status: "completed", progress: 100 } });
-
-        // Recalculate project progress if project_id provided
-        if (resolvedProjectId) {
-          const rows = db.query<any, [string]>(
-            "SELECT AVG(progress) as avg FROM tasks WHERE project_id=?"
-          ).get(resolvedProjectId);
-          const avg = Math.round(rows?.avg ?? 0);
-          db.query("UPDATE projects SET progress=?, updated_at=unixepoch() WHERE id=?")
-            .run(avg, resolvedProjectId);
-          emitCanvas("canvas:node_update", { id: resolvedProjectId, type: "project", data: { progress: avg } });
-        }
+      if (checks.status === "failed") {
+        await recordAgentOutcome(agentId, "harmful");
+        emitWorkEvent({
+          phase: "review_failed",
+          taskRef: syncDelegationRef,
+          taskName,
+          actorId: parentAgentId || agentId,
+          targetId: agentId,
+          detail: checks.summary,
+        });
+        return {
+          ok: false,
+          status: checks.status,
+          error: checks.summary,
+        };
       }
-
-      // Notify Agent Bus: task completed
-      agentBus.notifyTaskCompleted(workerId, worker.name, taskId ?? 0, taskName, resolvedProjectId, result);
-
-      const finalProgress = resolvedProjectId
-        ? (db.query<any, [string]>("SELECT progress FROM projects WHERE id=?").get(resolvedProjectId)?.progress ?? null)
-        : null;
-
+      await recordAgentOutcome(agentId, "helpful");
+      emitWorkEvent({
+        phase: "review_passed",
+        taskRef: syncDelegationRef,
+        taskName,
+        actorId: parentAgentId || agentId,
+        targetId: agentId,
+      });
+      emitWorkEvent({
+        phase: "completed",
+        taskRef: syncDelegationRef,
+        taskName,
+        actorId: agentId,
+        targetId: parentAgentId || null,
+      });
       return {
         ok: true,
-        worker_id: workerId,
+        worker_id: agentId,
         worker_name: worker.name,
-        task_id: taskId,
+        acceptance,
+        checks,
         result,
-        project_progress: finalProgress,
       };
     } catch (err) {
-      // Mark task failed if task_id provided
-      if (taskId) {
-        db.query(
-          "UPDATE tasks SET status='failed', result=?, updated_at=unixepoch() WHERE id=?"
-        ).run((err as Error).message, taskId);
-        emitCanvas("canvas:node_update", { id: taskId.toString(), type: "task", data: { status: "failed" } });
-      }
-
-      // Notify Agent Bus: task failed
-      agentBus.notifyTaskFailed(workerId, worker.name, taskId ?? 0, taskName, resolvedProjectId, (err as Error).message);
+      const errorMessage = (err as Error).message;
+      const wasAborted = (config?.signal as AbortSignal | undefined)?.aborted === true;
+      agentBus.notifyTaskFailed(agentId, worker.name, 0, taskName, "", errorMessage);
+      emitWorkEvent({
+        phase: wasAborted ? "aborted" : "failed",
+        taskRef: syncDelegationRef,
+        taskName,
+        actorId: agentId,
+        targetId: parentAgentId || null,
+        detail: wasAborted ? "Trabajo interrumpido" : errorMessage,
+      });
 
       return {
         ok: false,
-        worker_id: workerId,
-        task_id: taskId,
-        error: (err as Error).message,
+        worker_id: agentId,
+        error: errorMessage,
       };
+    } finally {
+      emitDelegationFinished({ workerId: agentId, taskRef: syncDelegationRef });
+      await prepared.release();
     }
   },
 };
 
-// ─── task_delegate_code ──────────────────────────────────────────────────────
+// ─── task_revise ─────────────────────────────────────────────────────────────
 
-export const taskDelegateCodeTool: Tool = {
-  name: "task_delegate_code",
-  description: "Delegate a coding task to a CLI subagent (Qwen, Claude, etc.) via Code Bridge. Spanish: delegar código, subagente CLI, programación, Qwen",
+const MAX_TASK_REVISIONS = 2;
+
+export const taskReviseTool: Tool = {
+  name: "task_revise",
+  description: "Send a completed or blocked delegated task back to its worker with concrete feedback, instead of reporting it as done. The worker resumes on the SAME thread — it keeps its prior context, so the feedback only needs to describe what's missing. Use this when a delivery doesn't meet its acceptance criteria and you can't fix it yourself.",
   parameters: {
     type: "object",
     properties: {
-      cli: { type: "string", enum: ["qwen", "claude", "opencode", "gemini"], description: "CLI tool to use" },
-      task_instructions: { type: "string", description: "Coding task instructions" },
+      task_id: { type: "string", description: "The task_id from task_delegate's result." },
+      feedback: { type: "string", description: "Concrete, actionable feedback: what's wrong and what the worker still needs to do." },
+      acceptance: {
+        type: "array",
+        description: "Updated acceptance criteria, if they need to change. Defaults to the original task's criteria.",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            description: { type: "string" },
+            checkTool: { type: "string" },
+          },
+          required: ["id", "description"],
+        },
+      },
     },
-    required: ["cli", "task_instructions"],
+    required: ["task_id", "feedback"],
   },
-  execute: async (params: Record<string, unknown>) => {
-    const cli = params.cli as string;
-    const taskInstructions = params.task_instructions as string;
+  execute: async (params: Record<string, unknown>, config?: any) => {
+    const taskId = params.task_id as string | undefined;
+    const feedback = params.feedback as string | undefined;
+    if (!taskId) return { ok: false, error: "Provide task_id." };
+    if (!feedback || !feedback.trim()) return { ok: false, error: "Provide feedback describing what's missing." };
 
-    return {
-      ok: true,
-      cli,
-      message: `Code task delegated to ${cli}: ${taskInstructions.substring(0, 100)}...`,
-    };
+    const parentAgentId = config?.configurable?.agent_id ?? "";
+    if (!parentAgentId) {
+      return { ok: false, error: "Caller identity is missing (config.configurable.agent_id)." };
+    }
+    const agentsCol = await col<AgentDoc>("agents");
+    const parentEntry = await agentsCol.get(parentAgentId);
+    if (!parentEntry) return { ok: false, error: `Caller agent not found: ${parentAgentId}` };
+    const parentProviderId = fromIndexable(parentEntry.doc.provider_id);
+    const parentModelId = fromIndexable(parentEntry.doc.model_id);
+
+    const tasksCol = await col<TaskDoc>("tasks");
+    const taskEntry = await tasksCol.get(taskId);
+    if (!taskEntry) return { ok: false, error: `Task not found: ${taskId}` };
+    const task = taskEntry.doc;
+    if (task.status !== "completed" && task.status !== "blocked") {
+      return { ok: false, error: `Task ${taskId} is "${task.status}" — only completed or blocked tasks can be revised.` };
+    }
+    if ((task.attempts ?? 0) >= MAX_TASK_REVISIONS) {
+      return { ok: false, error: `Task ${taskId} already used its ${MAX_TASK_REVISIONS} revision attempt(s). Fix it yourself or report the limit to the user.` };
+    }
+    if (!task.thread_id) {
+      return { ok: false, error: `Task ${taskId} has no thread_id — cannot resume its worker.` };
+    }
+
+    const agentId = fromIndexable(task.agent_id);
+    const workerEntry = agentId ? await agentsCol.get(agentId) : null;
+    if (!workerEntry) return { ok: false, error: `Worker not found for task ${taskId}: ${agentId}` };
+    const worker = workerEntry.doc;
+    if (!worker.enabled) return { ok: false, error: `Worker is disabled: ${worker.name}` };
+
+    const { createRun, getRun, deserializeAcceptance } = await import("../../agent/run-store.ts");
+    const { getDurableQueue } = await import("../../gateway/durable-queue.ts");
+    const { updateDoc } = await import("../../storage/hive.ts");
+
+    const previousRun = task.run_id ? await getRun(task.run_id) : null;
+    const previousAcceptance = previousRun ? deserializeAcceptance(previousRun) : null;
+    const acceptance = (params.acceptance as AcceptanceCriterion[] | undefined) ?? previousAcceptance ?? [{ id: "objective", description: task.description ?? feedback }];
+
+    try {
+      const run = await createRun({
+        thread_id: task.thread_id,
+        agent_id: agentId!,
+        user_id: config?.configurable?.user_id ?? "",
+        channel: config?.configurable?.channel ?? null,
+        kind: "worker",
+        max_iterations: worker.max_iterations || 10,
+        resume_policy: "resume",
+        acceptance,
+        catalog_agent_id: worker.source === "catalog" ? agentId! : undefined,
+      });
+
+      const turnId = config?.configurable?.turn_id as string | undefined;
+      if (turnId) {
+        const { registerDelegatedTask } = await import("../../gateway/delegation-groups.ts");
+        await registerDelegatedTask({
+          turnId,
+          taskId,
+          threadId: config?.configurable?.thread_id ?? "",
+          channel: config?.configurable?.channel,
+          userId: config?.configurable?.user_id,
+          sessionId: config?.configurable?.session_id,
+          coordinatorAgentId: parentAgentId,
+        });
+      }
+
+      const queue = getDurableQueue();
+      const job = await queue.enqueue({
+        lane: `task:${taskId}`,
+        type: "worker_task",
+        run_id: run.id,
+        payload: {
+          workerId: agentId,
+          taskDescription: `${task.description ?? ""}\n\nCORRECCIÓN SOLICITADA: ${feedback}`,
+          taskName: task.name,
+          taskId,
+          acceptance,
+          parentAgentId,
+          parentProviderId,
+          parentModelId,
+          userId: config?.configurable?.user_id ?? "",
+          workspace: config?.configurable?.workspace ?? null,
+          originThreadId: config?.configurable?.thread_id ?? null,
+          originChannel: config?.configurable?.channel ?? null,
+          originSessionId: config?.configurable?.session_id ?? null,
+          turnId: turnId ?? null,
+          revision: true,
+        },
+      });
+
+      await updateDoc<TaskDoc>("tasks", taskId, {
+        status: "pending",
+        error: null,
+        job_id: job.id,
+        run_id: run.id,
+        attempts: (task.attempts ?? 0) + 1,
+        delegation_group_id: turnId ?? task.delegation_group_id ?? null,
+        updated_at: Date.now(),
+      } as Partial<TaskDoc>);
+
+      const { recordAgentOutcome } = await import("../../agent/acceptance-checks.ts");
+      await recordAgentOutcome(agentId, "harmful");
+
+      emitWorkEvent({
+        phase: "review_failed",
+        taskRef: taskId,
+        taskName: task.name,
+        actorId: parentAgentId,
+        targetId: agentId!,
+        detail: feedback,
+      });
+
+      if (turnId) {
+        const { publishNarration } = await import("../../events/narration.ts");
+        await publishNarration({
+          turnId,
+          threadId: config?.configurable?.thread_id ?? "",
+          channel: config?.configurable?.channel,
+          userId: config?.configurable?.user_id,
+          sessionId: config?.configurable?.session_id,
+          agentId: agentId!,
+          agentName: worker.name,
+          kind: "delegated",
+          status: "queued",
+          label: `Devolví “${task.name}” a ${worker.name} con correcciones`,
+          dedupeKey: `revised:${taskId}:${(task.attempts ?? 0) + 1}`,
+        });
+      }
+
+      return {
+        ok: true,
+        task_id: taskId,
+        job_id: job.id,
+        run_id: run.id,
+        worker_id: agentId,
+        attempts: (task.attempts ?? 0) + 1,
+        status: "queued",
+        message: `Revision enqueued (async). Use task_status with task_id="${taskId}" to check it.`,
+      };
+    } catch (err) {
+      return { ok: false, error: `Task revision failed: ${(err as Error).message}` };
+    }
+  },
+};
+
+// ─── task_list ──────────────────────────────────────────────────────────────
+
+export const taskListTool: Tool = {
+  name: "task_list",
+  description: "List real delegated task executions for the current user. TaskDoc and JobDoc are the source of truth. Use this instead of agent_find to determine whether work is pending, running, completed, failed, or blocked.",
+  parameters: {
+    type: "object",
+    properties: {
+      status: {
+        type: "string",
+        enum: ["pending", "running", "completed", "failed", "blocked", "all"],
+        description: "Execution-state filter (default: all)",
+      },
+      worker_id: { type: "string", description: "Optional worker agent ID" },
+      limit: { type: "number", description: "Maximum tasks to return (default 20, maximum 100)" },
+    },
+  },
+  execute: async (params: Record<string, unknown>, config?: any) => {
+    const userId = config?.configurable?.user_id as string | undefined;
+    if (!userId) return { ok: false, error: "Missing user context for task_list." };
+
+    const status = (params.status as string | undefined) ?? "all";
+    const workerId = params.worker_id as string | undefined;
+    const limit = Math.max(1, Math.min(100, Number(params.limit) || 20));
+
+    try {
+      const tasksCol = await col<TaskDoc>("tasks");
+      const runsCol = await col<import("../../storage/collections.ts").AgentRunDoc>("agentRuns");
+      const { getJob } = await import("../../gateway/job-store.ts");
+      const allTasks = (await tasksCol.scan({}))
+        .map((entry) => entry.doc)
+        .sort((a, b) => b.updated_at - a.updated_at);
+
+      const result: Array<Record<string, unknown>> = [];
+      for (const task of allTasks) {
+        if (result.length >= limit) break;
+        if (workerId && fromIndexable(task.agent_id) !== workerId) continue;
+
+        const run = task.run_id ? await runsCol.get(task.run_id) : null;
+        if (!run || run.doc.user_id !== userId) continue;
+
+        const job = task.job_id ? await getJob(task.job_id) : null;
+        const executionState =
+          task.status === "pending"
+            ? "pending"
+            : task.status === "in_progress"
+              ? "running"
+              : task.status;
+        if (status !== "all" && executionState !== status) continue;
+
+        result.push({
+          id: task.id,
+          name: task.name,
+          description: task.description,
+          worker_id: fromIndexable(task.agent_id),
+          status: task.status,
+          execution_state: executionState,
+          progress: task.progress,
+          result: task.result,
+          error: task.error,
+          job_id: task.job_id,
+          job_status: job?.status ?? null,
+          run_id: task.run_id,
+          run_status: run.doc.status,
+          attempts: task.attempts ?? 0,
+          created_at: task.created_at,
+          started_at: task.started_at,
+          updated_at: task.updated_at,
+          completed_at: task.completed_at,
+        });
+      }
+
+      return { ok: true, task_count: result.length, tasks: result };
+    } catch (error) {
+      return { ok: false, error: `Failed to list delegated tasks: ${(error as Error).message}` };
+    }
   },
 };
 
@@ -534,34 +1054,58 @@ export const taskDelegateCodeTool: Tool = {
 
 export const taskStatusTool: Tool = {
   name: "task_status",
-  description: "Get execution status of one or more delegated tasks. Spanish: estado tarea delegada, verificar progreso, consultar tarea",
+  description: "Get execution status of one or more delegated tasks. Accepts string or numeric IDs. Spanish: estado tarea delegada, verificar progreso, consultar tarea",
   parameters: {
     type: "object",
     properties: {
-      task_ids: { type: "array", description: "List of task IDs", items: { type: "number" } },
+      task_ids: {
+        type: "array",
+        description: "List of task IDs (strings or numbers)",
+        items: { type: "string" },
+      },
     },
     required: ["task_ids"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = getDb();
-    const taskIds = params.task_ids as number[];
+    const taskIds = params.task_ids as Array<string | number>;
 
     try {
-      const placeholders = taskIds.map(() => "?").join(",");
-      const tasks = db.query<any, any[]>(
-        `SELECT id, name, status, progress, result FROM tasks WHERE id IN (${placeholders})`
-      ).all(...taskIds) as any[];
+      const tasksCol = await col<TaskDoc>("tasks");
+      const ids = taskIds.map((id) => String(id).padStart(15, "0"));
+      const entries = await Promise.all(ids.map((id) => tasksCol.get(id)));
+      const tasks = entries.filter((e): e is NonNullable<typeof e> => !!e).map((e) => e.doc);
 
-      return {
-        ok: true,
-        task_count: tasks.length,
-        tasks: tasks.map((t) => ({
+      const result = await Promise.all(tasks.map(async (t) => {
+        let jobStatus: string | null = null;
+        if (t.job_id) {
+          try {
+            const { getJob } = await import("../../gateway/job-store.ts");
+            const job = await getJob(t.job_id);
+            if (job) {
+              jobStatus = job.status;
+            }
+          } catch { /* non-critical */ }
+        }
+        return {
           id: t.id,
           name: t.name,
           status: t.status,
           progress: t.progress,
           result: t.result,
-        })),
+          error: t.error,
+          job_id: t.job_id,
+          run_id: t.run_id,
+          job_status: jobStatus,
+          attempts: t.attempts ?? 0,
+          started_at: t.started_at,
+          completed_at: t.completed_at,
+        };
+      }));
+
+      return {
+        ok: true,
+        task_count: result.length,
+        tasks: result,
       };
     } catch (error) {
       return { ok: false, error: `Failed to get task status: ${(error as Error).message}` };
@@ -619,39 +1163,34 @@ export const busReadTool: Tool = {
     },
   },
   execute: async (params: Record<string, unknown>) => {
-    const db = getDb();
     const workerId = params.worker_id as string | undefined;
     const limit = (params.limit as number) ?? 10;
 
     try {
-      let query = "SELECT * FROM agent_bus_messages WHERE read = 0";
-      const args: any[] = [];
+      const messagesCol = await col<AgentBusMessageDoc>("agentBusMessages");
+      let entries = (await messagesCol.scan({})).filter(e => !e.doc.read);
 
       if (workerId) {
-        query += " AND (to_worker_id = ? OR to_worker_id IS NULL)";
-        args.push(workerId);
+        entries = entries.filter(e => e.doc.to_worker_id === workerId || e.doc.to_worker_id === BROADCAST);
       }
 
-      query += " ORDER BY created_at ASC LIMIT ?";
-      args.push(limit);
-
-      const messages = db.query(query).all(...args) as any[];
+      entries.sort((a, b) => a.doc.created_at - b.doc.created_at);
+      entries = entries.slice(0, limit);
 
       // Mark as read
-      if (messages.length > 0) {
-        const ids = messages.map((m) => m.id).join(",");
-        db.query(`UPDATE agent_bus_messages SET read = 1 WHERE id IN (${ids})`).run();
+      for (const entry of entries) {
+        await messagesCol.put(entry.id, { ...entry.doc, read: true }, { expectedVersion: entry.version });
       }
 
       return {
         ok: true,
-        count: messages.length,
-        messages: messages.map((m) => ({
+        count: entries.length,
+        messages: entries.map(({ doc: m }) => ({
           id: m.id,
           event_type: m.event_type,
           content: m.content,
-          from_worker_id: m.from_worker_id,
-          created_at: new Date(m.created_at * 1000).toISOString(),
+          from_worker_id: fromIndexable(m.from_worker_id),
+          created_at: new Date(m.created_at).toISOString(),
         })),
       };
     } catch (error) {
@@ -660,53 +1199,6 @@ export const busReadTool: Tool = {
   },
 };
 
-// ─── project_updates ─────────────────────────────────────────────────────────
-
-export const projectUpdatesTool: Tool = {
-  name: "project_updates",
-  description: "Get recent status updates from workers in the same project. Spanish: actualizaciones proyecto, estado workers, progreso equipo",
-  parameters: {
-    type: "object",
-    properties: {
-      project_id: { type: "string", description: "Project ID to get updates from" },
-      limit: { type: "number", description: "Maximum updates to return (default: 10)" },
-    },
-    required: ["project_id"],
-  },
-  execute: async (params: Record<string, unknown>) => {
-    const db = getDb();
-    const projectId = params.project_id as string;
-    const limit = (params.limit as number) ?? 10;
-
-    try {
-      const tasks = db.query<any, [string, number]>(
-        `SELECT t.id, t.name, t.status, t.progress, t.result, t.updated_at, a.name as agent_name
-         FROM tasks t
-         LEFT JOIN agents a ON t.agent_id = a.id
-         WHERE t.project_id = ?
-         ORDER BY t.updated_at DESC
-         LIMIT ?`
-      ).all(projectId, limit) as any[];
-
-      return {
-        ok: true,
-        project_id: projectId,
-        count: tasks.length,
-        updates: tasks.map((t) => ({
-          task_id: t.id,
-          task_name: t.name,
-          agent_name: t.agent_name,
-          status: t.status,
-          progress: t.progress,
-          result: t.result,
-          updated_at: new Date(t.updated_at * 1000).toISOString(),
-        })),
-      };
-    } catch (error) {
-      return { ok: false, error: `Failed to get updates: ${(error as Error).message}` };
-    }
-  },
-};
 
 import crypto from "crypto";
 import { getAvailableModelsTool } from "./get-available-models.ts";
@@ -723,10 +1215,10 @@ export function createTools(): Tool[] {
     agentFindTool,
     agentArchiveTool,
     taskDelegateTool,
-    taskDelegateCodeTool,
+    taskReviseTool,
+    taskListTool,
     taskStatusTool,
     busPublishTool,
     busReadTool,
-    projectUpdatesTool,
   ];
 }

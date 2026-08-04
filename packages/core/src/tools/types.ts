@@ -2,7 +2,7 @@
  * Tool Type Definitions
  * Shared across all tool categories
  * 
- * These types are used by all 52 native tools in Hive
+ * These types are shared by every native tool in Hive.
  */
 
 export interface Tool {
@@ -13,6 +13,8 @@ export interface Tool {
     properties: Record<string, ToolParameter>;
     required?: string[];
   };
+  /** Per-tool timeout (ms) override. Falls back to config.tools.timeouts[name] → workerPool.toolTimeoutMs. */
+  timeoutMs?: number;
   execute: (
     params: Record<string, unknown>,
     config?: any

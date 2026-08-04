@@ -27,8 +27,8 @@ const agent = await createAgent(config: AgentConfig): Promise<Agent>
 ```typescript
 interface AgentConfig {
   name: string;
-  model?: string;                           // default: gpt-4o-mini
-  provider?: "openai" | "anthropic" | "gemini" | "ollama";
+  model?: string;         // id tal como lo nombra su dueño, ej. "claude-opus-5"
+  provider?: Provider;    // cualquiera de los 16 del catálogo
   systemPrompt?: string;
   tools?: ToolDefinition[];                 // Tools custom
   skills?: SkillDefinition[];               // Skills custom
@@ -42,6 +42,21 @@ interface AgentConfig {
   workspace?: string;
 }
 ```
+
+La config **se persiste en la fila del agente**, que es de donde el loop resuelve
+provider y modelo en cada turno. Consecuencias que conviene tener presentes:
+
+- `model` exige `provider`: el mismo modelo lo sirven varios providers y la clave
+  del catálogo depende de cuál. Sin provider, `createAgent` lanza.
+- El modelo tiene que existir en `SEED_DATA.models`, o lanza con el nombre del
+  provider al que no pertenece.
+- `name` deriva el id del agente (`"Mi Agente"` → `mi_agente`), así que dos
+  `createAgent` con el mismo nombre comparten fila e historial.
+- Las tools pasadas acá quedan registradas **y** indexadas, así que el modelo
+  puede descubrirlas con `search_knowledge` como a las nativas.
+
+> Hasta 0.1.5 `provider`, `model`, `maxIterations`, `skills` y `workspace` se
+> aceptaban y se descartaban: el agente corría con lo que hubiera en la base.
 
 ### Agent
 
@@ -82,7 +97,7 @@ import { createAgent, defineTool } from "@johpaz/hive-sdk";
 const agent = await createAgent({
   name: "asistente",
   provider: "openai",
-  model: "gpt-4o-mini",
+  model: "gpt-5.6-luna",
   systemPrompt: "Eres un asistente útil.",
 });
 
@@ -208,7 +223,7 @@ const result = await runAgentIsolated({
 
 ## Tool Selector
 
-Selección automática de tools basada en FTS5.
+Selección automática de tools por búsqueda BM25 sobre el índice de capacidad.
 
 ```typescript
 import { selectTools, CORE_TOOL_CATALOG } from "@johpaz/hive-sdk";
@@ -229,22 +244,22 @@ const MIN_RELEVANCE_THRESHOLD = -30;
 
 ### CORE_TOOL_CATALOG
 
-~50 tools built-in organizadas por categoría:
+58 tools built-in organizadas por categoría:
 
-| Categoría | Descripción |
-|-----------|-------------|
-| filesystem | read, write, edit, delete, list, glob |
-| web | web_search, web_fetch, browser automation |
-| projects | project/task CRUD |
-| cron | Croner-based scheduling |
-| cli | Shell command execution |
-| agents | Agent management, task delegation |
-| canvas | UI rendering, A2UI |
-| codebridge | Code execution bridge |
-| voice | TTS/STT |
-| core | save_note, notify, report_progress |
-| office | PDF, DOCX, XLSX, PPTX |
-| meeting | Meeting management |
+| Categoría | # | Descripción |
+|-----------|---|-------------|
+| agents | 15 | delegación (`task_delegate`, `task_revise`), memoria, catálogo de modelos |
+| web | 10 | `web_search`, `web_fetch`, automatización de browser, `artifact_inspect` |
+| cron | 8 | scheduling con Croner |
+| office | 8 | PDF, DOCX, XLSX, PPTX |
+| filesystem | 7 | read, write, edit, delete, list, glob, exists |
+| a2ui | 4 | superficies de UI generadas por el agente |
+| core | 4 | `save_note`, `notify`, `report_progress`, `search_knowledge` |
+| cli | 1 | ejecución de comandos |
+| api | 1 | `api_request` |
+
+Las categorías `projects`, `canvas`, `codebridge`, `voice` y `meeting`
+desaparecieron en 0.1.5 junto con sus tools.
 
 ---
 
@@ -266,19 +281,55 @@ const minimal = getMinimalSkills();
 
 ### Providers Soportados
 
-| Provider | Modelos | Streaming |
-|----------|---------|-----------|
-| openai | gpt-4o, gpt-4o-mini | ✅ |
-| anthropic | claude-sonnet, claude-haiku | ✅ |
-| gemini | gemini-2.5-flash | ✅ |
-| ollama | modelos locales | ✅ |
+16 providers, todos sembrados con su catálogo de modelos y su precio por millón
+de tokens. `provider` en `createAgent` acepta cualquiera de estos ids.
+
+| Provider | Adapter | Notas |
+|----------|---------|-------|
+| `anthropic` | nativo | extended thinking, round-trip de thinking blocks |
+| `gemini` | nativo | REST v1beta |
+| `ollama` | nativo | modelos locales, flag `think` |
+| `openai` | OpenAI-compat | Sol / Terra / Luna |
+| `deepseek`, `kimi` | OpenAI-compat | round-trip de `reasoning_content` |
+| `mistral`, `groq`, `qwen`, `minimax` | OpenAI-compat | |
+| `z-ai` | OpenAI-compat | sirve en `/api/paas/v4`, no en `/v1` |
+| `hiveagents` | OpenAI-compat | |
+| `nvidia`, `openrouter`, `opencode-go`, `modelscope` | OpenAI-compat | **revendedores** |
+
+Los cuatro revendedores prefijan sus ids de modelo con su propio id de provider
+(`modelscope/Qwen/Qwen3.5-397B-A17B`), porque sirven modelos de terceros que se
+solapan entre sí y la colección `models` se indexa por una sola clave. El
+prefijo no llega al cable: el adapter lo quita antes del request.
+
+```typescript
+import { catalogModelKey, wireModelId } from "@johpaz/hive-sdk";
+
+catalogModelKey("modelscope", "Qwen/Qwen3.5-397B-A17B"); // modelscope/Qwen/Qwen3.5-397B-A17B
+wireModelId("modelscope", "modelscope/Qwen/Qwen3.5-397B-A17B"); // Qwen/Qwen3.5-397B-A17B
+```
+
+### Errores del provider
+
+`callLLM` nunca lanza: devuelve `stop_reason: "error"` con un campo `error`
+tipado. Chequealo antes de persistir `content` en cualquier lado — es texto para
+mostrar, no salida del modelo.
+
+```typescript
+const response = await callLLM({ ... });
+
+if (response.stop_reason === "error") {
+  console.error(response.error?.message);
+  // HTTP 404/410 → el proveedor retiró el modelo; reintentar no sirve.
+  if (response.error?.modelUnavailable) selectAnotherModel();
+}
+```
 
 ### callLLM
 
 ```typescript
 import { callLLM, resolveProviderConfig } from "@johpaz/hive-sdk";
 
-const config = await resolveProviderConfig("openai", "gpt-4o-mini");
+const config = await resolveProviderConfig("openai", "gpt-5.6-luna");
 
 const response = await callLLM({
   provider: config.provider,

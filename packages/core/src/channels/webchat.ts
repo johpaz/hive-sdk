@@ -19,17 +19,22 @@ export class WebChatChannel extends BaseChannel {
   accountId: string;
   config: WebChatConfig;
 
+  private explicitAccountId?: string;
   private connections: Map<string, ServerWebSocket<WebSocketData>> = new Map();
   private log = logger.child("webchat");
 
   constructor(config: WebChatConfig) {
     super();
     this.config = config;
-    // Resolve accountId from database (single user) or use fallback
-    this.accountId = config.accountId || resolveUserId({}) || "webchat";
+    this.explicitAccountId = config.accountId;
+    this.accountId = config.accountId || "webchat";
   }
 
   async start(): Promise<void> {
+    // Resolve accountId from database (single user) if not provided explicitly
+    if (!this.explicitAccountId) {
+      this.accountId = (await resolveUserId({})) || "webchat";
+    }
     this.running = true;
     this.log.info("WebChat channel ready");
   }
@@ -46,7 +51,8 @@ export class WebChatChannel extends BaseChannel {
     this.log.debug(`WebChat connection registered: ${data.sessionId}`);
   }
 
-  unregisterConnection(sessionId: string): void {
+  unregisterConnection(sessionId: string, ws?: ServerWebSocket<WebSocketData>): void {
+    if (ws && this.connections.get(sessionId) !== ws) return;
     this.connections.delete(sessionId);
     this.log.debug(`WebChat connection unregistered: ${sessionId}`);
   }
@@ -86,15 +92,10 @@ export class WebChatChannel extends BaseChannel {
     const ws = this.connections.get(sessionId);
 
     if (!ws) {
-      this.log.warn(`No WebChat connection for session: ${sessionId}`);
-      return;
+      throw new Error(`No WebChat connection for session: ${sessionId}`);
     }
 
-    try {
-      ws.send(JSON.stringify(message));
-    } catch (error) {
-      this.log.error(`Failed to send WebChat message: ${(error as Error).message}`);
-    }
+    ws.send(JSON.stringify(message));
   }
 
   async sendAudio(sessionId: string, audio: Buffer, mimeType: string): Promise<void> {

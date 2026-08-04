@@ -41,7 +41,7 @@ const tool = defineTool({
 const agent = await createAgent({
   name: "asistente",
   provider: "openai",
-  model: "gpt-4o-mini",
+  model: "gpt-5.6-luna",
   tools: [tool],
 });
 
@@ -97,7 +97,7 @@ packages/
 │       ├── api/            # createAgent(), Agent interface
 │       ├── agent/          # AgentLoop, ContextCompiler, ConversationStore
 │       │   ├── providers/  # LLM providers (OpenAI, Anthropic, Gemini, Ollama)
-│       │   └── selectors/  # FTS5 ToolSelector, SkillSelector, PlaybookSelector
+│       │   └── tool-selector.ts, skill-selector.ts, playbook-selector.ts (BM25 sobre HiveDB)
 │       ├── tools/          # 70+ built-in tools + ToolRegistry + ToolExecutor
 │       ├── skills/         # SkillLoader, defineSkill()
 │       ├── swarm/          # DAGScheduler, TaskGraph, WorkerPool
@@ -105,7 +105,7 @@ packages/
 │       ├── gateway/        # HTTP/WebSocket server (Bun.serve)
 │       ├── channels/       # Telegram, Discord, WhatsApp, Slack, Webchat
 │       ├── mcp/            # MCPClientManager + transports (SSE, WS, STDIO)
-│       ├── storage/        # SQLite (bun:sqlite) + FTS5
+│       ├── storage/        # HiveDB (colecciones + BM25)
 │       ├── canvas/         # CanvasManager + A2UI emitter
 │       ├── scheduler/      # CronScheduler + DAG execution
 │       ├── tool-runtime/   # Bun Worker pool para ejecución paralela de tools
@@ -137,7 +137,7 @@ packages/
 Unidad de ejecución con configuración, contexto y ciclo de ejecución.
 
 ### Tool
-Función invocable por el agente. Definida con `defineTool()`, seleccionada vía FTS5.
+Función invocable por el agente. Definida con `defineTool()`, seleccionada por búsqueda BM25.
 
 ### Skill
 Composición de tools con triggers semánticos. Definida con `defineSkill()`.

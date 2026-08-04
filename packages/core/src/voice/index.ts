@@ -1,4 +1,5 @@
-import { getDb } from "../storage/SQLiteStorage";
+import { col } from "../storage/hive";
+import type { ChannelDoc, ModelDoc } from "../storage/collections";
 import { loadProviderApiKey } from "../storage/crypto";
 import { logger } from "../utils/logger";
 
@@ -79,20 +80,11 @@ class VoiceService {
     return VoiceService.instance;
   }
 
-  getChannelVoiceConfig(channelId: string): VoiceConfig {
-    const db = getDb();
-    const result = db.query(`
-      SELECT voice_enabled, tts_enabled, stt_provider, tts_provider, tts_voice_id
-      FROM channels WHERE id = ?
-    `).get(channelId) as {
-      voice_enabled: number;
-      tts_enabled: number;
-      stt_provider: string | null;
-      tts_provider: string | null;
-      tts_voice_id: string | null;
-    } | undefined;
+  async getChannelVoiceConfig(channelId: string): Promise<VoiceConfig> {
+    const channelsCol = await col<ChannelDoc>("channels");
+    const entry = await channelsCol.get(channelId);
 
-    if (!result) {
+    if (!entry) {
       return {
         voiceEnabled: false,
         ttsEnabled: false,
@@ -103,26 +95,62 @@ class VoiceService {
     }
 
     return {
-      voiceEnabled: result.voice_enabled === 1,
-      ttsEnabled: result.tts_enabled === 1,
-      sttProvider: result.stt_provider,
-      ttsProvider: result.tts_provider,
-      ttsVoiceId: result.tts_voice_id,
+      voiceEnabled: entry.doc.voice_enabled,
+      ttsEnabled: entry.doc.tts_enabled,
+      sttProvider: entry.doc.stt_provider,
+      ttsProvider: entry.doc.tts_provider,
+      ttsVoiceId: entry.doc.tts_voice_id,
     };
   }
 
-  async transcribe(audio: AudioInput, modelId: string): Promise<string> {
-    const isGroq = modelId.startsWith("whisper");
-    const isOpenAi = modelId === "whisper-1";
-    
-    if (isGroq) {
-      return this.transcribeWithGroq(audio, modelId);
-    } else if (isOpenAi) {
-      return this.transcribeWithOpenAIWhisper(audio);
+  /** Provider de un modelo según la BD; acepta también un id de provider (canales antiguos). */
+  private async getModelProvider(modelId: string): Promise<string | null> {
+    try {
+      const modelsCol = await col<ModelDoc>("models");
+      const model = await modelsCol.get(modelId);
+      if (model?.doc.provider_id) return model.doc.provider_id;
+      const providersCol = await col<import("../storage/collections").ProviderDoc>("providers");
+      const provider = await providersCol.get(modelId);
+      return provider?.doc.id || null;
+    } catch {
+      return null;
     }
-    
-    log.warn(`Unknown STT provider ${modelId}, defaulting to Groq Whisper`);
-    return this.transcribeWithGroq(audio, "whisper-large-v3-turbo");
+  }
+
+  /** Primer modelo STT/TTS activo de un provider activo, como fallback desde la BD. */
+  private async getFirstActiveVoiceModel(type: "stt" | "tts"): Promise<{ id: string; provider: string } | null> {
+    try {
+      const modelsCol = await col<ModelDoc>("models");
+      const providersCol = await col<import("../storage/collections").ProviderDoc>("providers");
+      const models = (await modelsCol.findBy("model_type", type)).filter(e => e.doc.active);
+      for (const m of models) {
+        const provider = await providersCol.get(m.doc.provider_id);
+        if (provider?.doc.active) return { id: m.doc.id, provider: m.doc.provider_id };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  async transcribe(audio: AudioInput, modelId: string): Promise<string> {
+    let provider = await this.getModelProvider(modelId);
+    let resolvedModelId = modelId;
+
+    if (!provider) {
+      const fallback = await this.getFirstActiveVoiceModel("stt");
+      if (!fallback) throw new Error(`STT model "${modelId}" not found and no active STT models in the database`);
+      log.warn(`STT model ${modelId} not found in DB, falling back to ${fallback.provider}/${fallback.id}`);
+      provider = fallback.provider;
+      resolvedModelId = fallback.id;
+    }
+
+    switch (provider) {
+      case "groq":   return this.transcribeWithGroq(audio, resolvedModelId);
+      case "openai": return this.transcribeWithOpenAIWhisper(audio);
+      default:
+        throw new Error(`STT not supported for provider "${provider}" (model ${resolvedModelId})`);
+    }
   }
 
   private async getProviderApiKey(providerId: string): Promise<string | null> {
@@ -229,26 +257,26 @@ class VoiceService {
   }
 
   async speak(text: string, modelId: string, voiceId?: string): Promise<AudioOutput> {
-    const isElevenLabs = modelId.startsWith("eleven");
-    const isOpenAI = modelId.startsWith("tts-") || modelId.startsWith("gpt-");
-    const isGemini = modelId.startsWith("gemini");
-    const isQwen = modelId.startsWith("qwen");
-    const isPiper = modelId === "piper" || modelId === "piper-local";
+    let provider = modelId === "piper-local" ? "piper" : await this.getModelProvider(modelId);
+    let resolvedModelId = modelId;
 
-    if (isPiper) {
-      return this.speakWithPiper(text, voiceId);
-    } else if (isElevenLabs) {
-      return this.speakWithElevenLabs(text, modelId, voiceId);
-    } else if (isOpenAI) {
-      return this.speakWithOpenAI(text, modelId, voiceId);
-    } else if (isGemini) {
-      return this.speakWithGemini(text, modelId, voiceId);
-    } else if (isQwen) {
-      return this.speakWithQwen(text, modelId, voiceId);
+    if (!provider) {
+      const fallback = await this.getFirstActiveVoiceModel("tts");
+      if (!fallback) throw new Error(`TTS model "${modelId}" not found and no active TTS models in the database`);
+      log.warn(`TTS model ${modelId} not found in DB, falling back to ${fallback.provider}/${fallback.id}`);
+      provider = fallback.provider;
+      resolvedModelId = fallback.id;
     }
 
-    log.warn(`Unknown TTS provider ${modelId}, defaulting to ElevenLabs Flash`);
-    return this.speakWithElevenLabs(text, "eleven_flash_v2_5", voiceId);
+    switch (provider) {
+      case "piper":      return this.speakWithPiper(text, voiceId);
+      case "elevenlabs": return this.speakWithElevenLabs(text, resolvedModelId, voiceId);
+      case "openai":     return this.speakWithOpenAI(text, resolvedModelId, voiceId);
+      case "gemini":     return this.speakWithGemini(text, resolvedModelId, voiceId);
+      case "qwen":       return this.speakWithQwen(text, resolvedModelId, voiceId);
+      default:
+        throw new Error(`TTS not supported for provider "${provider}" (model ${resolvedModelId})`);
+    }
   }
 
   private async speakWithPiper(text: string, voiceId?: string): Promise<AudioOutput> {
@@ -448,21 +476,19 @@ class VoiceService {
     };
   }
 
-  getConfiguredVoiceProviders(): { groq: boolean; elevenlabs: boolean; openai: boolean; gemini: boolean; qwen: boolean } {
-    const db = getDb();
-    const hasDbKey = (providerId: string): boolean => {
-      const row = db.query(
-        `SELECT api_key_encrypted FROM providers WHERE id = ? AND api_key_encrypted IS NOT NULL AND api_key_encrypted != ''`
-      ).get(providerId) as { api_key_encrypted: string } | undefined;
-      return !!row;
-    };
+  async getConfiguredVoiceProviders(): Promise<{ groq: boolean; elevenlabs: boolean; openai: boolean; gemini: boolean; qwen: boolean }> {
+    const hasDbKey = async (providerId: string): Promise<boolean> => !!(await loadProviderApiKey(providerId));
+
+    const [groq, elevenlabs, openai, gemini, qwen] = await Promise.all([
+      hasDbKey("groq"), hasDbKey("elevenlabs"), hasDbKey("openai"), hasDbKey("gemini"), hasDbKey("qwen"),
+    ]);
 
     return {
-      groq:       hasDbKey("groq")       || !!(process.env.GROQ_API_KEY),
-      elevenlabs: hasDbKey("elevenlabs") || !!(process.env.ELEVENLABS_API_KEY),
-      openai:     hasDbKey("openai")     || !!(process.env.OPENAI_API_KEY),
-      gemini:     hasDbKey("gemini")     || !!(process.env.GEMINI_API_KEY),
-      qwen:       hasDbKey("qwen")       || !!(process.env.DASHSCOPE_API_KEY),
+      groq:       groq       || !!(process.env.GROQ_API_KEY),
+      elevenlabs: elevenlabs || !!(process.env.ELEVENLABS_API_KEY),
+      openai:     openai     || !!(process.env.OPENAI_API_KEY),
+      gemini:     gemini     || !!(process.env.GEMINI_API_KEY),
+      qwen:       qwen       || !!(process.env.DASHSCOPE_API_KEY),
     };
   }
 

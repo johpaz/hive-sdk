@@ -5,8 +5,8 @@
  * Sends:    { type: "AGENT_RESULT", taskId, result } | { type: "AGENT_CHUNK", taskId, chunk }
  */
 
-import { runAgent } from "../agent/AgentRunner.ts";
-import type { StreamChunk } from "../agent/AgentRunner.ts";
+import { runAgent } from "../agent/agent-loop.ts";
+import type { StreamChunk } from "../agent/agent-loop.ts";
 
 declare var self: {
   onmessage: ((event: { data: WorkerMessage }) => void) | null;

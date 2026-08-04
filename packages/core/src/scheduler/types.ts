@@ -5,7 +5,6 @@
  * All names use "CronJob" terminology (formerly ScheduledTask).
  */
 
-import type { Database } from "bun:sqlite";
 import type { Cron } from "croner";
 
 /**
@@ -24,7 +23,7 @@ export type TaskStatus = "active" | "paused" | "completed" | "failed" | "cancell
 export type TaskRunStatus = "running" | "success" | "failed" | "timeout";
 
 /**
- * CronJob as stored in SQLite (cron_jobs table)
+ * CronJob as stored in the `cronJobs` HiveDB collection
  */
 export interface CronJob {
   id: string;
@@ -48,6 +47,8 @@ export interface CronJob {
   run_count: number;
   error_count: number;
   last_error: string | null;
+  misfire_policy?: "skip" | "fire_once";
+  misfire_grace_min?: number;
   created_at: string;
   updated_at: string;
   last_run_at: string | null;
@@ -90,6 +91,8 @@ export interface CreateCronJobInput {
   max_runs?: number | null;
   protect?: boolean;
   interval_sec?: number | null;
+  misfire_policy?: "skip" | "fire_once";
+  misfire_grace_min?: number;
 }
 
 /**
@@ -113,6 +116,8 @@ export interface UpdateCronJobInput {
   protect?: boolean;
   interval_sec?: number | null;
   status?: TaskStatus;
+  misfire_policy?: "skip" | "fire_once";
+  misfire_grace_min?: number;
 }
 
 /**

@@ -1,10 +1,15 @@
 export {};
-async function traceCommand() {
-	const { initializeDatabase } = await import("@hive/core");
-	const { getDb } = await import("@hive/core/storage");
 
-	await initializeDatabase();
-	const db = getDb();
+/**
+ * `hives trace` — últimas ejecuciones registradas por el ACE Tracer.
+ *
+ * Los traces pasaron de una tabla SQLite a la colección `traces` de HiveDB en
+ * 0.1.5, así que esto ya no es una query SQL.
+ */
+async function traceCommand() {
+	const { ensureHiveDb, col } = await import("@johpaz/hive-sdk");
+
+	await ensureHiveDb();
 
 	const limit = parseInt(process.argv[3] || "20", 10);
 
@@ -12,43 +17,40 @@ async function traceCommand() {
 	console.log("─".repeat(80));
 
 	try {
-		const rows = db
-			.query(
-				`SELECT id, agent_id, model, tool_calls, duration_ms, tokens_used, created_at
-         FROM traces
-         ORDER BY created_at DESC
-         LIMIT ?`
-			)
-			.all(limit) as Array<{
-			id: string;
+		const tracesCol = await col<{
 			agent_id: string;
 			model: string;
-			tool_calls: string;
-			duration_ms: number;
-			tokens_used: number;
-			created_at: string;
-		}>;
+			provider?: string;
+			tool_calls?: string | null;
+			duration_ms?: number;
+			tokens_used?: number;
+			created_at: number;
+		}>("traces");
+
+		const rows = (await tracesCol.scan({}))
+			.sort((a, b) => b.doc.created_at - a.doc.created_at)
+			.slice(0, limit);
 
 		if (rows.length === 0) {
-			console.log("No traces found.");
+			console.log("No traces found (run the agent first).");
 			return;
 		}
 
 		for (const row of rows) {
 			console.log(`ID:        ${row.id}`);
-			console.log(`Agent:     ${row.agent_id}`);
-			console.log(`Model:     ${row.model}`);
-			console.log(`Duration:  ${row.duration_ms}ms`);
-			console.log(`Tokens:    ${row.tokens_used}`);
-			console.log(`Time:      ${row.created_at}`);
-			if (row.tool_calls) {
-				const tools = JSON.parse(row.tool_calls);
-				console.log(`Tools:     ${Array.isArray(tools) ? tools.join(", ") : row.tool_calls}`);
+			console.log(`Agent:     ${row.doc.agent_id}`);
+			console.log(`Model:     ${row.doc.provider ? `${row.doc.provider}/` : ""}${row.doc.model}`);
+			console.log(`Duration:  ${row.doc.duration_ms ?? 0}ms`);
+			console.log(`Tokens:    ${row.doc.tokens_used ?? 0}`);
+			console.log(`Time:      ${new Date(row.doc.created_at).toISOString()}`);
+			if (row.doc.tool_calls) {
+				const tools = JSON.parse(row.doc.tool_calls);
+				console.log(`Tools:     ${Array.isArray(tools) ? tools.join(", ") : row.doc.tool_calls}`);
 			}
 			console.log("─".repeat(80));
 		}
 	} catch (err) {
-		console.log("No traces table found (run the agent first).");
+		console.error(`No se pudieron leer los traces: ${(err as Error).message}`);
 	}
 }
 

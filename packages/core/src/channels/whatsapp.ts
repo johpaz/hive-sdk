@@ -11,8 +11,10 @@ import type { ChannelConfig, IncomingMessage, OutboundMessage } from "./base.ts"
 import { BaseChannel } from "./base.ts";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import * as path from "node:path";
+import { homedir } from "node:os";
 import { logger } from "../utils/logger.ts";
-import { getDb } from "../storage/SQLiteStorage.ts";
+import { updateDoc } from "../storage/hive.ts";
+import type { ChannelDoc } from "../storage/collections.ts";
 // @ts-ignore — no type definitions for qrcode-terminal
 import qrcodeTerminal from "qrcode-terminal";
 
@@ -69,7 +71,7 @@ export class WhatsAppChannel extends BaseChannel {
   }
 
   private getAuthPath(agentId: string, accountId: string): string {
-    const baseDir = process.env.HOME ?? "";
+    const baseDir = homedir();
     const authDir = path.join(baseDir, ".hive", "agents", agentId, "whatsapp", accountId);
 
     if (!existsSync(authDir)) {
@@ -117,11 +119,22 @@ export class WhatsAppChannel extends BaseChannel {
       this.connectionState.waVersion = version.join(".");
       this.log.info(`Using WhatsApp Web v${version.join(".")}`);
 
+      const baileysLogger = {
+        level: "silent",
+        child: () => baileysLogger,
+        trace: () => {},
+        debug: () => {},
+        info:  (msg: unknown) => { if (typeof msg === "object" && msg !== null) this.log.debug((msg as any).msg ?? JSON.stringify(msg)); },
+        warn:  (msg: unknown) => { if (typeof msg === "object" && msg !== null) this.log.warn((msg as any).msg ?? JSON.stringify(msg)); },
+        error: (msg: unknown) => { if (typeof msg === "object" && msg !== null) this.log.error((msg as any).msg ?? JSON.stringify(msg)); },
+      };
+
       this.socket = makeWASocket({
         version,
         auth: state,
         printQRInTerminal: false,
         syncFullHistory: false,
+        logger: baileysLogger as any,
         getMessage: async () => ({ conversation: "" }),
       });
 
@@ -169,8 +182,7 @@ export class WhatsAppChannel extends BaseChannel {
       this.log.warn(`WhatsApp disconnected: ${statusCode}`);
 
       try {
-        getDb().query(`UPDATE channels SET status = ? WHERE id = ?`)
-          .run(shouldReconnect ? "connecting" : "disconnected", this.accountId);
+        await updateDoc<ChannelDoc>("channels", this.accountId, { status: shouldReconnect ? "connecting" : "disconnected" });
       } catch { /* ignore DB errors */ }
 
       const needsSessionClear =
@@ -207,8 +219,7 @@ export class WhatsAppChannel extends BaseChannel {
       }
 
       try {
-        getDb().query(`UPDATE channels SET status = 'connected', last_active = ? WHERE id = ?`)
-          .run(Date.now(), this.accountId);
+        await updateDoc<ChannelDoc>("channels", this.accountId, { status: "connected", last_active: Date.now() });
       } catch { /* ignore DB errors */ }
     }
   }
@@ -471,7 +482,11 @@ export class WhatsAppChannel extends BaseChannel {
       throw new Error("WhatsApp not connected");
     }
 
-    await this.stopTyping(sessionId);
+    // Progress narration arrives mid-turn. Clearing "typing…" on it would leave
+    // the user watching interim messages with no sign the agent is still
+    // working — only a final message ends the indicator.
+    const isInterim = message.type === "progress";
+    if (!isInterim) await this.stopTyping(sessionId);
 
     const text = message.content ?? message.chunk ?? "";
     if (!text) return;
@@ -479,6 +494,7 @@ export class WhatsAppChannel extends BaseChannel {
     const jid = this.getJid(sessionId);
 
     await this.socket.sendMessage(jid, { text });
+    if (isInterim) await this.startTyping(sessionId);
     this.log.debug(`Sent message to ${jid}`);
   }
 

@@ -1,16 +1,9 @@
-import { describe, expect, it, beforeAll, afterAll } from "bun:test";
+process.env.HIVE_DB_PATH = ":memory:";
+
+import { describe, expect, it } from "bun:test";
 import { createWorker, WorkerPool } from "./index.ts";
-import { setupTestDb, teardownTestDb, insertTestAgent, insertTestProvider } from "../../../../test/setup-db.ts";
 
 describe("createWorker", () => {
-  beforeAll(() => {
-    setupTestDb();
-  });
-
-  afterAll(() => {
-    teardownTestDb();
-  });
-
   it("creates a worker instance with config", () => {
     const worker = createWorker({
       name: "test-worker",

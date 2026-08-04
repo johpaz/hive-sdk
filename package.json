@@ -1,6 +1,6 @@
 {
   "name": "@johpaz/hive-sdk",
-  "version": "0.0.18",
+  "version": "0.1.5",
   "private": false,
   "description": "Hive SDK — The Agent Harness SDK. Build, deploy, and scale AI agent applications with multi-channel support, context engineering, and swarm orchestration.",
   "license": "MIT",
@@ -32,14 +32,15 @@
     ".": "./packages/core/src/index.ts",
     "./agent": "./packages/core/src/agent/index.ts",
     "./agent/providers": "./packages/core/src/agent/providers/index.ts",
-    "./agent/selectors": "./packages/core/src/agent/selectors/index.ts",
     "./tools": "./packages/core/src/tools/index.ts",
     "./skills": "./packages/core/src/skills/index.ts",
     "./storage": "./packages/core/src/storage/index.ts",
     "./swarm": "./packages/core/src/swarm/index.ts",
     "./swarm/strategies": "./packages/core/src/swarm/strategies/index.ts",
     "./swarm/presets": "./packages/core/src/swarm/presets/index.ts",
-    "./ace": "./packages/core/src/ace/index.ts",
+    "./scheduler": "./packages/core/src/scheduler/index.ts",
+    "./workers": "./packages/core/src/workers/index.ts",
+    "./events": "./packages/core/src/events/event-bus.ts",
     "./ethics": "./packages/core/src/ethics/index.ts",
     "./canvas": "./packages/core/src/canvas/index.ts",
     "./config": "./packages/core/src/config/index.ts",
@@ -64,8 +65,11 @@
   ],
   "scripts": {
     "build": "bun run typecheck",
-    "typecheck": "tsc --build --force",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test",
+    "skills:bundle": "bun scripts/generate-skill-bundle.ts",
+    "version:set": "bun scripts/bump-version.ts",
+    "release": "bun scripts/bump-version.ts --push",
     "prepublish": "echo 'No build needed - Bun runs TypeScript directly'"
   },
   "dependencies": {

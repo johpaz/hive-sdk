@@ -7,7 +7,7 @@
  * Also emits canvas:node_update events so the UI reflects task state in real time.
  */
 
-import { agentBus } from "../swarm/AgentBus.ts"
+import { agentBus } from "../events/agent-bus.ts"
 import { emitCanvas } from "../canvas/emitter.ts"
 import { TaskNode } from "./TaskNode"
 import { DAGResult } from "./TaskResult"

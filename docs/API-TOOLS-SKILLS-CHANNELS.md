@@ -71,7 +71,7 @@ const exec = new ToolExecutor(reg);
 const result = await exec.execute("echo", { msg: "hola" });
 ```
 
-### Tool Selection (FTS5)
+### Tool Selection (BM25)
 
 ```typescript
 import { selectTools, CORE_TOOL_CATALOG } from "@johpaz/hive-sdk";
@@ -120,16 +120,24 @@ Conecta APIs REST con autenticación y métodos HTTP:
 
 ```typescript
 const result = await apiRequestTool.execute({
-  url: "https://api.example.com/items",
   method: "POST",
-  headers: { "X-Custom": "value" },
-  body: { name: "example" },
-  auth: { type: "bearer", token: process.env.API_TOKEN! },
-  timeoutMs: 30000,
+  url: "https://api.example.com/items",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${process.env.API_TOKEN}`,
+  },
+  body: JSON.stringify({ name: "example" }),
+  query_params: { verbose: "1" },
+  timeout_ms: 30000,
 });
 
-// Auth soportada: bearer, basic, api_key (header o query)
+// → { ok, status, statusText, headers, body, contentType, url }
+// `body` viene parseado si la respuesta es JSON, y como string si no.
 ```
+
+Nunca lanza: un fallo de red o un método inválido vuelven como
+`{ ok: false, error }`. No tiene helpers de autenticación — la credencial va
+como un header más.
 
 ---
 
@@ -168,12 +176,24 @@ const skill = loader.get("file-manager");
 
 ### Skills empaquetadas
 
-El SDK incluye skills empaquetadas para casos comunes. Algunas útiles para web y APIs:
+El SDK incluye 23 skills empaquetadas. Algunas útiles para web y APIs:
 
 - `web_research` — búsqueda y síntesis con `web_search` + `web_fetch`.
-- `web_browser_research` — investigación profunda combinando `web_search` con navegación real (`browser_navigate`, `browser_extract`) para sitios dinámicos.
 - `browser_scrape` — captura de contenido renderizado con screenshots.
 - `browser_automate` — automatización de flujos web (clicks, formularios).
+- `api_client` — consumo de APIs REST con `api_request`.
+- `capability_discovery` — la skill mínima: enseña al agente a encontrar el resto.
+
+Se generan desde los `SKILL.md` de `packages/core/src/skills/bundled/`:
+
+```bash
+bun run skills:bundle
+```
+
+En 0.1.5 se retiraron 21 skills que invocaban tools inexistentes (`voice_*`,
+`meeting_transcription`, `canvas_*`, `code_*`, `project_*`): el selector se las
+podía ofrecer al modelo y la ejecución moría sin ejecutor. Hay un test que falla
+si alguna vuelve a declarar una tool que no está en el registry.
 
 ---
 
@@ -371,28 +391,44 @@ unsubscribeCanvas(handler);
 
 ## Storage
 
-Base de datos SQLite con FTS5.
+HiveDB (`@johpaz/hive-db`), un motor embebido con colecciones de documentos e
+índice BM25. Reemplazó a SQLite + FTS5 en 0.1.5.
 
 ```typescript
-import { initializeDatabase, dbService } from "@johpaz/hive-sdk";
+import { ensureHiveDb, col } from "@johpaz/hive-sdk";
+import type { AgentDoc } from "@johpaz/hive-sdk";
 
-await initializeDatabase();
-const db = getTestDb();
+// Abre la base, crea los índices y siembra el catálogo. Idempotente.
+await ensureHiveDb();
 
-const results = db.query("SELECT * FROM agents WHERE id = ?").all(agentId);
-const single = db.query("SELECT * FROM agents WHERE id = ?").get(agentId);
+const agents = await col<AgentDoc>("agents");
 
-dbService.close();
+const one = await agents.get(agentId);          // { id, doc, version } | undefined
+const workers = await agents.findBy("role", "worker");
+const all = await agents.scan({});
+const scoped = await agents.scan({ prefix: `${threadId}:` });
+
+// Escritura con concurrencia optimista
+await agents.put(agentId, { ...one.doc, status: "idle" }, { expectedVersion: one.version });
 ```
 
-### Schemas FTS5
+`HIVE_DB_PATH=":memory:"` abre una base efímera — es lo que usa la suite de
+tests para no tocar la del usuario.
 
-```sql
-CREATE VIRTUAL TABLE playbook_fts USING fts5(rule, category, applicable_to);
-CREATE VIRTUAL TABLE tools_fts USING fts5(tool_name, name, description, category);
-CREATE VIRTUAL TABLE skills_fts USING fts5(id, name, description, category, tools, triggers, body);
-CREATE VIRTUAL TABLE mcp_tools_fts USING fts5(id, name, description, category);
+### Búsqueda de capacidad
+
+El índice BM25 es lo que hace funcionar a `search_knowledge`: el agente arranca
+con un loadout mínimo y descubre el resto en runtime.
+
+```typescript
+import { selectTools, selectSkills } from "@johpaz/hive-sdk";
+
+const tools = await selectTools("leer un archivo del workspace");
+const skills = await selectSkills("investigar en la web");
 ```
+
+Una tool declarada con `defineTool` y pasada a `createAgent` queda indexada
+automáticamente, así que el modelo puede descubrirla igual que a las nativas.
 
 ---
 

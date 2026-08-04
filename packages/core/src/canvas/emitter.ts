@@ -1,4 +1,5 @@
-import { getDb } from "../storage/SQLiteStorage"
+import { col, fromIndexable } from "../storage/hive"
+import type { AgentDoc, McpServerDoc } from "../storage/collections"
 
 export interface CanvasEvent {
   type: CanvasEventType
@@ -13,17 +14,48 @@ export type CanvasEventType =
   | "canvas:node_remove"
   | "canvas:edge_add"
   | "canvas:edge_remove"
-  | "canvas:render"
-  | "canvas:ask"
-  | "canvas:confirm"
-  | "canvas:clear"
+  | "canvas:work_event"
   | "ag-ui:event"
 
-const subscribers = new Set<{ send: (data: string) => void }>()
+export type CanvasWorkPhase =
+  | "delegated"
+  | "review_passed"
+  | "review_failed"
+  | "completed"
+  | "failed"
+  | "aborted"
+  | "blocked"
 
-interface AgentLiveState { status: string; currentTool: string | null }
+export interface CanvasWorkEvent {
+  eventId: string
+  phase: CanvasWorkPhase
+  taskRef: string
+  taskName: string
+  actorId: string
+  targetId: string | null
+  toolName?: string | null
+  detail?: string | null
+}
+
+const subscribers = new Set<{ send: (data: string) => void }>()
+let workEventSequence = 0
+
+interface AgentLiveState {
+  status: string
+  currentTool: string | null
+  currentTask: string | null
+  taskId: string | null
+  delegatedBy: string | null
+}
 const agentLiveState = new Map<string, AgentLiveState>()
-const canvasComponents = new Map<string, unknown>()
+
+const LIVE_DEFAULTS: AgentLiveState = {
+  status: "idle",
+  currentTool: null,
+  currentTask: null,
+  taskId: null,
+  delegatedBy: null,
+}
 
 export function subscribeCanvas(ws: { send: (data: string) => void }) {
   subscribers.add(ws)
@@ -34,20 +66,16 @@ export function unsubscribeCanvas(ws: { send: (data: string) => void }) {
 }
 
 export function emitCanvas(type: CanvasEventType, data: any) {
-  // Track canvas components for new subscribers
-  if (type === "canvas:render" && data?.component?.id) {
-    canvasComponents.set(data.component.id, data.component)
-  }
-  if (type === "canvas:clear") {
-    canvasComponents.clear()
-  }
-
   // Track live agent state for new subscribers
   if (type === "canvas:node_update" && data?.nodeId && data?.changes) {
-    const prev = agentLiveState.get(data.nodeId) ?? { status: "idle", currentTool: null }
+    const prev = agentLiveState.get(data.nodeId) ?? { ...LIVE_DEFAULTS }
+    const c = data.changes
     agentLiveState.set(data.nodeId, {
-      status: data.changes.status ?? prev.status,
-      currentTool: "currentTool" in data.changes ? data.changes.currentTool : prev.currentTool,
+      status: c.status ?? prev.status,
+      currentTool: "currentTool" in c ? c.currentTool : prev.currentTool,
+      currentTask: "currentTask" in c ? c.currentTask : prev.currentTask,
+      taskId: "taskId" in c ? c.taskId : prev.taskId,
+      delegatedBy: "delegatedBy" in c ? c.delegatedBy : prev.delegatedBy,
     })
   }
 
@@ -62,17 +90,69 @@ export function emitCanvas(type: CanvasEventType, data: any) {
   }
 }
 
-export function removeCanvasComponent(id: string) {
-  canvasComponents.delete(id);
+/** Evento semántico y transitorio para presentar el trabajo sin inferir resultados. */
+export function emitWorkEvent(event: Omit<CanvasWorkEvent, "eventId">): CanvasWorkEvent {
+  const emitted: CanvasWorkEvent = {
+    eventId: `work:${event.taskRef}:${event.phase}:${Date.now().toString(36)}:${++workEventSequence}`,
+    ...event,
+    taskName: event.taskName.slice(0, 120),
+    detail: event.detail?.slice(0, 180) ?? null,
+  }
+  emitCanvas("canvas:work_event", emitted)
+  return emitted
 }
 
-export function getCanvasSnapshot() {
-  const db = getDb()
+/**
+ * Marca visualmente el inicio de una delegación coordinador→worker:
+ * el worker muestra la tarea en curso y aparece el edge "delegates".
+ */
+export function emitDelegationStarted(opts: {
+  workerId: string
+  parentAgentId: string
+  taskRef: string
+  taskName: string
+}) {
+  emitWorkEvent({
+    phase: "delegated",
+    taskRef: opts.taskRef,
+    taskName: opts.taskName,
+    actorId: opts.parentAgentId,
+    targetId: opts.workerId,
+  })
+  emitCanvas("canvas:node_update", {
+    nodeId: opts.workerId,
+    changes: {
+      status: "thinking",
+      currentTask: opts.taskName,
+      taskId: opts.taskRef,
+      delegatedBy: opts.parentAgentId,
+    },
+  })
+  if (opts.parentAgentId) {
+    emitCanvas("canvas:edge_add", {
+      id: `deleg_${opts.taskRef}`,
+      source: opts.parentAgentId,
+      target: opts.workerId,
+      edgeType: "delegates",
+      data: { taskId: opts.taskRef, taskName: opts.taskName },
+    })
+  }
+}
 
-  const agentNodes = db
-    .query<any, []>("SELECT id, name, description, role, status FROM agents")
-    .all()
-    .map((a: any) => {
+/** Limpia el estado visual de delegación (éxito, fallo o aborto). */
+export function emitDelegationFinished(opts: { workerId: string; taskRef: string }) {
+  emitCanvas("canvas:node_update", {
+    nodeId: opts.workerId,
+    changes: { status: "idle", currentTool: null, currentTask: null, taskId: null, delegatedBy: null },
+  })
+  emitCanvas("canvas:edge_remove", { id: `deleg_${opts.taskRef}` })
+}
+
+export async function getCanvasSnapshot() {
+  const agentsCol = await col<AgentDoc>("agents")
+  const agentNodes = (await agentsCol.scan({}))
+    .map(e => e.doc)
+    .map((a) => {
       const live = agentLiveState.get(a.id)
       return {
         id: a.id,
@@ -80,70 +160,41 @@ export function getCanvasSnapshot() {
         description: a.description,
         status: live?.status ?? a.status,
         type: "agent",
-        data: { role: a.role, currentTool: live?.currentTool ?? null },
+        data: {
+          role: a.role,
+          currentTool: live?.currentTool ?? null,
+          currentTask: live?.currentTask ?? null,
+          taskId: live?.taskId ?? null,
+          delegatedBy: live?.delegatedBy ?? null,
+          source: a.source ?? null,
+        },
       }
     })
 
-  const mcpNodes = db
-    .query<any, []>("SELECT id, name, status FROM mcp_servers WHERE enabled = 1")
-    .all()
-    .map((m: any) => ({
+  const mcpServersCol = await col<McpServerDoc>("mcpServers")
+  const mcpNodes = (await mcpServersCol.scan({}))
+    .map(e => e.doc)
+    .filter(m => m.enabled)
+    .map((m) => ({
       id: `mcp:${m.id}`,
       name: m.name,
       status: m.status,
       type: "mcp",
     }))
 
-  // Proyectos activos
-  const projectNodes = db
-    .query<any, []>("SELECT id, name, type, status, progress, agent_id FROM projects WHERE status IN ('active','pending','paused')")
-    .all()
-    .map((p: any) => ({
-      id: `project_${p.id}`,
-      name: p.name,
-      status: p.status,
-      type: "project",
-      data: { progress: p.progress, projectType: p.type, agentId: p.agent_id },
-    }))
-
-  // Tareas de proyectos activos
-  const taskNodes = db
-    .query<any, []>(`
-      SELECT t.id, t.name, t.status, t.progress, t.agent_id, t.project_id
-      FROM tasks t
-      INNER JOIN projects p ON t.project_id = p.id
-      WHERE p.status IN ('active','pending','paused')
-    `)
-    .all()
-    .map((t: any) => ({
-      id: `task_${t.id}`,
-      name: t.name,
-      status: t.status,
-      type: "task",
-      data: { progress: t.progress, agentId: t.agent_id, projectId: t.project_id },
-    }))
-
-  // Edges: proyecto → tarea
-  const projectTaskEdges = taskNodes.map((t: any) => ({
-    id: `edge_proj_task_${t.id.replace("task_", "")}`,
-    source: `project_${t.data.projectId}`,
-    target: t.id,
-    edgeType: "contains",
-  }))
-
-  // Edges: tarea → agente asignado
-  const taskAgentEdges = taskNodes
-    .filter((t: any) => t.data.agentId)
-    .map((t: any) => ({
-      id: `edge_task_agent_${t.id.replace("task_", "")}`,
-      source: t.id,
-      target: t.data.agentId,
-      edgeType: "assigned_to",
+  // Edges: delegaciones activas coordinador → worker (sobreviven reconexiones)
+  const delegationEdges = Array.from(agentLiveState.entries())
+    .filter(([, s]) => s.delegatedBy && s.taskId)
+    .map(([workerId, s]) => ({
+      id: `deleg_${s.taskId}`,
+      source: s.delegatedBy as string,
+      target: workerId,
+      edgeType: "delegates",
+      data: { taskId: s.taskId, taskName: s.currentTask },
     }))
 
   return {
-    nodes: [...agentNodes, ...mcpNodes, ...projectNodes, ...taskNodes],
-    edges: [...projectTaskEdges, ...taskAgentEdges],
-    components: Array.from(canvasComponents.values()),
+    nodes: [...agentNodes, ...mcpNodes],
+    edges: [...delegationEdges],
   }
 }

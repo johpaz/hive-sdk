@@ -1,5 +1,7 @@
 [test]
-preload = ["./test/setup-db.ts"]
+# Fija HIVE_DB_PATH=":memory:" antes de que cargue cualquier módulo — ver test/preload.ts.
+# Sin esto la suite abre la base real del usuario (~/.hive/data/hive) y le escribe.
+preload = ["./test/preload.ts"]
 timeout = 30000
 randomize = false
 

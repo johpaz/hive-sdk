@@ -1,6 +1,6 @@
 /**
- * Tools Registry - Exports all 66 tools
- * 
+ * Tools Registry
+ *
  * Import this to get all tools:
  * import { createAllTools } from "./tools";
  */
@@ -11,29 +11,20 @@ import type { Config } from "../config/loader.ts";
 // Filesystem (7)
 import * as filesystem from "./filesystem/index.ts";
 
-// Web (9)
+// Web (10)
 import * as web from "./web/index.ts";
 
-// Projects (8)
-import * as projects from "./projects/index.ts";
-
-// Cron (7) - Croner-based scheduler tools
+// Cron (8) - Croner-based scheduler tools
 import * as cron from "./cron/index.ts";
 
 // CLI (1)
 import * as cli from "./cli/index.ts";
 
-// Agents (14)
+// Agents (15)
 import * as agents from "./agents/index.ts";
 
-// Canvas (7)
-import * as canvas from "./canvas/index.ts";
-
-// Codebridge (3)
-import * as codebridge from "./codebridge/index.ts";
-
-// Voice (2)
-import * as voice from "./voice/index.ts";
+// A2UI (4)
+import * as a2ui from "./a2ui/index.ts";
 
 // Core (4)
 import * as core from "./core/index.ts";
@@ -41,40 +32,56 @@ import * as core from "./core/index.ts";
 // Office (8)
 import * as office from "./office/index.ts";
 
-// Meeting (4)
-import * as meeting from "./meeting/index.ts";
+// API (1) - HTTP client for REST APIs
+import * as api from "./api/index.ts";
+
+// ─── Tools de la aplicación ──────────────────────────────────────────────────
+//
+// Punto de extensión propio del SDK: hive trae todas sus tools compiladas, pero
+// acá `defineTool()` existe justamente para que la app aporte las suyas. Sin
+// esto, una tool de usuario sólo se le podía anunciar al modelo (via
+// `extraTools` del agent loop) pero no tenía ejecutor asociado, así que la
+// llamada moría con "no matching executor found in allTools".
+
+const appTools = new Map<string, Tool>();
+
+/** Registra una tool de la aplicación para que entre en el loadout del agente. */
+export function registerAppTool(tool: Tool): void {
+  appTools.set(tool.name, tool);
+}
+
+/** Quita todas las tools registradas por la app (útil entre tests). */
+export function clearAppTools(): void {
+  appTools.clear();
+}
+
+/** Tools registradas por la app, en orden de registro. */
+export function listAppTools(): Tool[] {
+  return Array.from(appTools.values());
+}
 
 /**
- * Creates all 70 tools with proper configuration
+ * Creates all tools with proper configuration
  */
 export function createAllTools(config: Config): Tool[] {
   return [
     // FILESYSTEM (7)
     ...filesystem.createTools(),
 
-    // WEB (9)
+    // WEB (10)
     ...web.createTools(),
 
-    // PROJECTS (8)
-    ...projects.createTools(),
-
-    // CRON (7)
+    // CRON (8)
     ...cron.createTools(),
 
     // CLI (1)
     ...cli.createTools(),
 
-    // AGENTS (14)
+    // AGENTS (15)
     ...agents.createTools(),
 
-    // CANVAS (7 + A2UI 4)
-    ...canvas.createTools(config),
-
-    // CODEBRIDGE (3)
-    ...codebridge.createTools(),
-
-    // VOICE (2)
-    ...voice.createTools(),
+    // A2UI (4)
+    ...a2ui.createTools(config),
 
     // CORE (4)
     ...core.createTools(),
@@ -82,8 +89,13 @@ export function createAllTools(config: Config): Tool[] {
     // OFFICE (8)
     ...office.createTools(),
 
-    // MEETING (4)
-    ...meeting.createTools(),
+    // API (1)
+    ...api.createTools(),
+
+    // Las de la app van últimas: si una comparte nombre con una nativa, gana la
+    // nativa, porque el selector busca por nombre y no queremos que registrar
+    // una tool desde afuera secuestre `fs_read` o `task_delegate`.
+    ...listAppTools(),
   ];
 }
 
@@ -96,26 +108,20 @@ export function createToolsByCategory(category: string, config: Config): Tool[] 
       return filesystem.createTools();
     case "web":
       return web.createTools();
-    case "projects":
-      return projects.createTools();
     case "cron":
       return cron.createTools();
     case "cli":
       return cli.createTools();
     case "agents":
       return agents.createTools();
-    case "canvas":
-      return canvas.createTools(config);
-    case "codebridge":
-      return codebridge.createTools();
-    case "voice":
-      return voice.createTools();
+    case "a2ui":
+      return a2ui.createTools(config);
     case "core":
       return core.createTools();
     case "office":
       return office.createTools();
-    case "meeting":
-      return meeting.createTools();
+    case "api":
+      return api.createTools();
     default:
       return [];
   }
@@ -139,7 +145,6 @@ export {
 export {
   webSearchTool,
   webFetchTool,
-  apiRequestTool,
   browserNavigateTool,
   browserScreenshotTool,
   browserClickTool,
@@ -147,18 +152,8 @@ export {
   browserExtractTool,
   browserScriptTool,
   browserWaitTool,
+  artifactInspectTool,
 } from "./web/index.ts";
-
-export {
-  projectCreateTool,
-  projectListTool,
-  projectUpdateTool,
-  projectDoneTool,
-  projectFailTool,
-  taskCreateTool,
-  taskUpdateTool,
-  taskEvaluateTool,
-} from "./projects/index.ts";
 
 export {
   cronCreateTool,
@@ -185,33 +180,19 @@ export {
   agentFindTool,
   agentArchiveTool,
   taskDelegateTool,
-  taskDelegateCodeTool,
+  taskReviseTool,
+  taskListTool,
   taskStatusTool,
   busPublishTool,
   busReadTool,
-  projectUpdatesTool,
 } from "./agents/index.ts";
 
 export {
-  canvasRenderTool,
-  canvasAskTool,
-  canvasConfirmTool,
-  canvasShowCardTool,
-  canvasShowProgressTool,
-  canvasShowListTool,
-  canvasClearTool,
-} from "./canvas/index.ts";
-
-export {
-  codebridgeLaunchTool,
-  codebridgeStatusTool,
-  codebridgeCancelTool,
-} from "./codebridge/index.ts";
-
-export {
-  voiceTranscribeTool,
-  voiceSpeakTool,
-} from "./voice/index.ts";
+  createA2UISurfaceTool,
+  createA2UIUpdateComponentsTool,
+  createA2UIUpdateDataModelTool,
+  createA2UIDeleteSurfaceTool,
+} from "./a2ui/index.ts";
 
 export {
   searchKnowledgeTool,
@@ -230,3 +211,7 @@ export {
   officeLeerPptxTool,
   officeEscribirPptxTool,
 } from "./office/index.ts";
+
+export {
+  apiRequestTool,
+} from "./api/index.ts";

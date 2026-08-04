@@ -178,6 +178,11 @@ export class AgentBrowserView {
       args.push("--screenshot-quality", String(options.quality));
     }
 
+    // If clip/selector is provided, agent-browser screenshot accepts a positional selector
+    // For element screenshots, we can pass a selector as first positional arg
+    // But we don't have selector in options here — the old CDPClient didn't use it either
+    // screenshotElement helper handles element-specific screenshots
+
     const res = await this.run(args);
     if (!res.success) throw new Error(res.error || "screenshot failed");
 

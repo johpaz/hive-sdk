@@ -1,2 +1,13 @@
-export { loadEnv, getHiveDir, loadConfig } from "./loader.ts";
-export type { Config } from "./loader.ts";
+export {
+    loadEnv,
+    getHiveDir,
+    loadConfig,
+    expandConfigPath,
+    expandPath,
+    type Config,
+    type ProviderConfig,
+    type MCPServerConfig,
+    type AgentEntry,
+    type Binding,
+    type UserConfig as ConfigUserConfig
+} from "./loader.ts";

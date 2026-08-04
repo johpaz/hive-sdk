@@ -7,14 +7,19 @@
 
 import type { Config } from "../../config/loader.ts"
 import { logger } from "../../utils/logger.ts"
-import { getDb } from "../../storage/SQLiteStorage.ts"
-import { getAgentLoop } from "../AgentRunner.ts"
-import { resolveUserId, resolveAgentId } from "../../storage/onboarding.ts"
-import type { ContentPart } from "../../multimodal/types.ts"
+import { getAgentLoop } from "../agent-loop"
+import { resolveUserId, resolveAgentId } from "../../storage/onboarding"
+import type { ContentPart } from "../../multimodal/types"
+import type { TurnSource } from "../../storage/collections"
 
-export type Provider = "openai" | "anthropic" | "gemini" | "mistral" | "kimi" | "ollama" | "openrouter" | "deepseek" | "nvidia"
+export type Provider = "openai" | "anthropic" | "gemini" | "mistral" | "kimi" | "ollama" | "openrouter" | "deepseek" | "nvidia" | "hiveagents" | "z-ai" | "modelscope" | "minimax" | "qwen" | "groq" | "opencode-go"
 
-import type { StepEvent } from "../AgentRunner.ts"
+export interface StepEvent {
+  type: "text" | "plan" | "tool_call" | "tool_result"
+  message: string
+  toolName?: string
+  isError?: boolean
+}
 
 export interface ModelOptions {
   provider?: Provider
@@ -26,12 +31,22 @@ export interface ModelOptions {
   tools?: Record<string, any>
   maxSteps?: number
   onToken?: (token: string) => void
+  onReasoningToken?: (token: string) => void
   onStep?: (step: StepEvent) => Promise<void>
   threadId?: string
   userId?: string
+  agentId?: string
   channel?: string
   rawUserMessage?: string
   signal?: AbortSignal
+  /** Durable run options — checkpoint/resume via agentRuns (see run-store). */
+  runId?: string
+  resume?: boolean
+  durable?: boolean
+  turnId?: string
+  sessionId?: string
+  /** See AgentLoopOptions.historySource in agent-loop.ts. */
+  historySource?: TurnSource
 }
 
 export interface ModelResponse {
@@ -57,12 +72,11 @@ export class AgentRunner {
   }
 
   async generate(options: ModelOptions): Promise<ModelResponse> {
-    const db = getDb()
-    // Resolve agentId from database (coordinator or first enabled)
-    const agentId = resolveAgentId(null) || "main"
+    // Resolve agentId from explicit option or database (coordinator/first enabled)
+    const agentId = options.agentId || (await resolveAgentId(null)) || "main"
 
     // Resolve userId from database
-    const userId = options.userId || resolveUserId({})
+    const userId = options.userId || (await resolveUserId({}))
     if (!userId) {
       throw new Error("No userId provided. Please complete onboarding first.")
     }
@@ -90,8 +104,16 @@ export class AgentRunner {
             // system_prompt intentionally omitted — context-compiler builds it
             channel: options.channel,
             raw_user_message: options.rawUserMessage,
+            run_id: options.runId,
+            resume: options.resume,
+            durable: options.durable,
+            turn_id: options.turnId,
+            session_id: options.sessionId,
+            history_source: options.historySource,
           },
           signal: options.signal,
+          onToken: options.onToken,
+          onReasoningToken: options.onReasoningToken,
         }
       )
 
@@ -122,7 +144,7 @@ export class AgentRunner {
             } else {
               logger.debug(`[STREAM] Content empty or whitespace only, skipping accumulation`)
             }
-            if (options.onToken) options.onToken(content)
+            if (options.onToken && !chunk.agent.streamed) options.onToken(content)
           } else {
             logger.debug(`[STREAM] No content in chunk, lastMsg.content is falsy`)
           }
@@ -194,6 +216,3 @@ export class AgentRunner {
   }
 }
 
-export function createAgentRunner(config: Config): AgentRunner {
-  return new AgentRunner(config)
-}

@@ -1,7 +1,9 @@
 import { Bot, GrammyError, InputFile, type Context } from "grammy";
 import { BaseChannel, type ChannelConfig, type IncomingMessage, type OutboundMessage } from "./base.ts";
 import { logger } from "../utils/logger.ts";
-import { getDb } from "../storage/SQLiteStorage.ts";
+import { col, updateDoc } from "../storage/hive.ts";
+import type { ChannelDoc, UserIdentityDoc } from "../storage/collections.ts";
+import { resolveUserId } from "../storage/onboarding";
 
 export interface TelegramConfig extends ChannelConfig {
   botToken: string;
@@ -55,20 +57,43 @@ export class TelegramChannel extends BaseChannel {
     });
 
     this.bot.start({
-      onStart: () => {
+      onStart: async () => {
         this.running = true;
         this.log.info(`Telegram bot started: @${this.bot?.botInfo?.username ?? "unknown"}`);
         try {
-          getDb().query(`UPDATE channels SET status = 'connected' WHERE id = ?`).run(this.accountId);
+          await updateDoc<ChannelDoc>("channels", this.accountId, { status: "connected" });
         } catch { /* ignore DB errors */ }
       },
-    }).catch((error: Error) => {
+    }).catch(async (error: Error) => {
       this.log.error(`Telegram bot error: ${error.message}`);
       this.running = false;
       try {
-        getDb().query(`UPDATE channels SET status = 'error' WHERE id = ?`).run(this.accountId);
+        await updateDoc<ChannelDoc>("channels", this.accountId, { status: "error" });
       } catch { /* ignore DB errors */ }
     });
+  }
+
+  /**
+   * Ensures a userIdentities row links this Telegram chat to the single-user
+   * account, so cron/task notifications can route to Telegram even when the
+   * user's first-ever contact with the bot was a command (e.g. /start) that
+   * otherwise replies and returns before reaching the normal
+   * handleMessage() → resolveContext() auto-link path.
+   */
+  private async linkIdentity(channelUserId: string): Promise<void> {
+    try {
+      const userId = await resolveUserId({});
+      if (!userId) return;
+      const identitiesCol = await col<UserIdentityDoc>("userIdentities");
+      await identitiesCol.put(`${userId}:telegram`, {
+        user_id: userId,
+        channel: "telegram",
+        channel_user_id: channelUserId,
+        linked_at: Date.now(),
+      });
+    } catch (err) {
+      this.log.warn(`Failed to auto-link telegram identity: ${(err as Error).message}`);
+    }
   }
 
   private async handleTelegramMessage(ctx: Context): Promise<void> {
@@ -98,6 +123,11 @@ export class TelegramChannel extends BaseChannel {
     // Clean up old entries (> 60s) to prevent unbounded growth
     for (const [id, ts] of this.recentlyProcessed) {
       if (now - ts > 60_000) this.recentlyProcessed.delete(id);
+    }
+
+    // Auto-link this chat on first contact, before any command short-circuits.
+    if (!isGroup && this.isUserAllowed(chatId)) {
+      await this.linkIdentity(chatId);
     }
 
     const text = message.text;
@@ -306,7 +336,7 @@ export class TelegramChannel extends BaseChannel {
       this.running = false;
       this.log.info("Telegram bot stopped");
       try {
-        getDb().query(`UPDATE channels SET status = 'disconnected' WHERE id = ?`).run(this.accountId);
+        await updateDoc<ChannelDoc>("channels", this.accountId, { status: "disconnected" });
       } catch { /* ignore DB errors */ }
     }
   }

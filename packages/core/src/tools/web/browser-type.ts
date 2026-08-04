@@ -68,16 +68,11 @@ export const browserTypeTool: Tool = {
         await Bun.sleep(500);
       }
 
-      // click(selector) waits for actionability then focuses the element
-      await view.click(selector, { timeout });
-
       if (clear) {
-        // Ctrl+A → Backspace to clear existing content
-        await view.press("a", { modifiers: ["Control"] });
-        await view.press("Backspace");
+        await (view as any).fill(selector, text);
+      } else {
+        await (view as any).typeIn(selector, text);
       }
-
-      await view.type(text);
 
       const currentUrl = view.url;
       log.info(`Type successful: "${text.substring(0, 50)}${text.length > 50 ? "..." : ""}" into ${selector}`);

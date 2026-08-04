@@ -9,12 +9,12 @@ const HIVE_CONFIG = `{
   "version": "0.1.0",
   "type": "module",
   "dependencies": {
-    "@hive/core": "latest"
+    "@johpaz/hive-sdk": "latest"
   }
 }
 `;
 
-const HIVE_AGENT_TS = `import { createAgent, defineTool } from "@hive/core";
+const HIVE_AGENT_TS = `import { createAgent, defineTool } from "@johpaz/hive-sdk";
 
 const myTool = defineTool({
   name: "hello",
@@ -26,7 +26,7 @@ const myTool = defineTool({
 
 const agent = await createAgent({
   name: "my-agent",
-  model: "gpt-4o",
+  model: "gpt-5.6-luna",
   provider: "openai",
   tools: [myTool],
 });

@@ -1,6 +1,6 @@
 # Template `hive-app` — Documentación Completa
 
-El template `hive-app` genera una **aplicación harness completa** lista para ejecutar. Incluye gateway HTTP/WebSocket, agente coordinador, configuración de canales, base de datos SQLite, y deployment con Docker.
+El template `hive-app` genera una **aplicación harness completa** lista para ejecutar. Incluye gateway HTTP/WebSocket, agente coordinador, configuración de canales, base de datos HiveDB, y deployment con Docker.
 
 ---
 
@@ -97,7 +97,7 @@ export default {
 | `channels.discord.enabled` | `boolean` | `false` | Bot de Discord |
 | `channels.whatsapp.enabled` | `boolean` | `false` | Bot de WhatsApp |
 | `channels.slack.enabled` | `boolean` | `false` | Bot de Slack |
-| `database.path` | `string` | `"./data/hive.db"` | Ruta de la base de datos SQLite |
+| `database.path` | `string` | `"./data/hive"` | Ruta de la base de datos HiveDB |
 
 ---
 
@@ -105,7 +105,7 @@ export default {
 
 Entry point de la aplicación. Realiza:
 
-1. Inicializa la base de datos (`initializeDatabase`)
+1. Inicializa la base de datos (`ensureHiveDb`, que además siembra el catálogo)
 2. Crea el agente coordinador (`createAgent`)
 3. Inicializa el ChannelManager
 4. Arranca el gateway (`startGateway`)
@@ -115,7 +115,7 @@ Entry point de la aplicación. Realiza:
 import {
   createAgent,
   startGateway,
-  initializeDatabase,
+  ensureHiveDb,
   ChannelManager,
   logger,
 } from "@johpaz/hive-sdk";
@@ -126,12 +126,12 @@ const log = logger.child("app");
 async function main() {
   log.info(`Starting my-hive...`);
 
-  await initializeDatabase();
+  await ensureHiveDb();
 
   const agent = await createAgent({
     name: "coordinator",
     provider: "openai",
-    model: "gpt-4o-mini",
+    model: "gpt-5.6-luna",
     systemPrompt: "You are a helpful AI assistant...",
   });
 
@@ -160,7 +160,7 @@ Puedes cambiar el `provider`, `model`, y `systemPrompt`:
 ```typescript
 const agent = await createAgent({
   name: "coordinator",
-  provider: "anthropic",        // "openai" | "anthropic" | "gemini" | "ollama"
+  provider: "anthropic",        // cualquiera de los 16 del catálogo
   model: "claude-3-5-sonnet-20241022",
   systemPrompt: "Tu system prompt personalizado...",
 });
@@ -183,7 +183,7 @@ const searchTool = defineTool({
 const agent = await createAgent({
   name: "coordinator",
   provider: "openai",
-  model: "gpt-4o-mini",
+  model: "gpt-5.6-luna",
   tools: [searchTool],
 });
 ```
@@ -200,7 +200,7 @@ import { createAgent } from "@johpaz/hive-sdk";
 export const coordinatorAgent = await createAgent({
   name: "coordinator",
   provider: "openai",
-  model: "gpt-4o-mini",
+  model: "gpt-5.6-luna",
   systemPrompt: "You are the coordinator agent...",
 });
 ```
@@ -278,7 +278,7 @@ LOG_LEVEL=info
 |----------|-----------|-------------|
 | `HIVE_HOST` | No | Host del gateway |
 | `HIVE_PORT` | No | Puerto del gateway |
-| `HIVE_DATA_DIR` | No | Directorio de datos SQLite |
+| `HIVE_HOME` | No | Directorio de datos (HiveDB en `<HIVE_HOME>/data`) |
 | `OPENAI_API_KEY` | Sí* | API key de OpenAI |
 | `ANTHROPIC_API_KEY` | Sí* | API key de Anthropic |
 | `GOOGLE_API_KEY` | Sí* | API key de Gemini |

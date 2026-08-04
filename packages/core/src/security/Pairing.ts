@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { eventBus } from "../swarm/EventBus.ts";
+import { eventBus } from "../events/event-bus.ts";
 import { logger } from "../utils/logger.ts";
 
 export interface PairingCode {

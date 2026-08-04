@@ -4,7 +4,7 @@
  * Provides global access to the MCP Manager instance
  */
 
-import type { MCPClientManager } from "../mcp/index.ts";
+import type { MCPClientManager } from "./MCPClient.ts";
 
 let _mcpManager: MCPClientManager | null = null;
 
@@ -16,6 +16,3 @@ export function getMCPManager(): MCPClientManager | null {
   return _mcpManager;
 }
 
-export function hasMCPManager(): boolean {
-  return _mcpManager !== null;
-}

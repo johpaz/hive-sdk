@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs"
 import { fileURLToPath } from "node:url"
+import { dirname, join } from "node:path"
 import { availableParallelism } from "node:os"
 import type { Config } from "../config/loader.ts"
 import { loadConfig } from "../config/loader.ts"
@@ -15,6 +16,8 @@ export type ToolCallLike = {
 export type RuntimeTool = {
   name: string
   execute?: (params: Record<string, unknown>, config?: any) => Promise<unknown>
+  /** Per-tool timeout (ms) override from the Tool definition. */
+  timeoutMs?: number
 }
 
 export type ToolRuntimeConfig = {
@@ -32,6 +35,12 @@ export type ExecuteToolBatchOptions = {
     thread_id?: string
     channel?: string
     workspace?: string | null
+    /** The currently-running agent's own id (agent-loop.ts's opts.agentId) — read by tools that need to know who's calling them (task_delegate's parent lookup, agent_create's parent_id, bus_publish's sender). */
+    agent_id?: string
+    run_id?: string
+    turn_id?: string
+    task_id?: string
+    session_id?: string
   }
   hiveConfig?: Config
   workerPool?: ToolRuntimeConfig
@@ -110,8 +119,28 @@ function resolveWorkerEntry(): string {
     }
   }
 
+  const fallbacks: string[] = []
+  const envPath = process.env.HIVE_TOOL_WORKER_PATH
+  if (envPath) fallbacks.push(envPath)
+
+  try {
+    const execDir = dirname(process.execPath)
+    fallbacks.push(join(execDir, "tool-worker.js"))
+    fallbacks.push(join(execDir, "packages", "core", "src", "tool-runtime", "tool-worker.js"))
+  } catch {
+    // process.execPath is not available — skip execDir-based fallbacks
+  }
+
+  fallbacks.push("/app/tool-worker.js")
+
+  for (const filePath of fallbacks) {
+    if (existsSync(filePath)) {
+      return filePath
+    }
+  }
+
   throw new Error(
-    `Tool worker entry not found. Tried: ${candidates.map((candidate) => fileURLToPath(candidate)).join(", ")}`
+    `Tool worker entry not found. Tried: ${[...candidates.map((candidate) => fileURLToPath(candidate)), ...fallbacks].join(", ")}`
   )
 }
 
@@ -139,7 +168,7 @@ function toolErrorResult(
 }
 
 const DEFAULT_MAIN_THREAD_TOOL_NAMES = new Set([
-  // These tools depend on process-local singleton state (SQLite DB, live
+  // These tools depend on process-local singleton state (HiveDB handle, live
   // channel senders, schedulers, browser sessions, or in-memory services).
   "search_knowledge",
   "save_note",
@@ -155,24 +184,14 @@ const DEFAULT_MAIN_THREAD_TOOL_NAMES = new Set([
   "bus_publish",
   "bus_read",
   "get_available_models",
-  "meeting_start",
-  "meeting_add_segment",
-  "meeting_stop",
-  "meeting_report",
   "browser_navigate",
   "browser_screenshot",
+  "artifact_inspect",
   "browser_click",
   "browser_type",
   "browser_extract",
   "browser_script",
   "browser_wait",
-  "canvas_render",
-  "canvas_ask",
-  "canvas_confirm",
-  "canvas_show_card",
-  "canvas_show_progress",
-  "canvas_show_list",
-  "canvas_clear",
   "a2ui_create_surface",
   "a2ui_update_components",
   "a2ui_update_data_model",
@@ -188,15 +207,14 @@ const DEFAULT_MAIN_THREAD_TOOL_NAMES = new Set([
   "notify",
   "report_progress",
   "task_delegate",
-  "task_delegate_code",
-  "voice_transcribe",
-  "voice_speak",
+  "task_list",
 ])
 
 async function executeInMainThread(job: {
   toolCall: ToolCallLike
   allTools: RuntimeTool[]
   toolConfig: ExecuteToolBatchOptions["toolConfig"]
+  signal?: AbortSignal
 }): Promise<unknown> {
   const toolName = job.toolCall.function.name
   const tool = job.allTools.find((candidate) => candidate.name === toolName)
@@ -208,16 +226,36 @@ async function executeInMainThread(job: {
     const args = typeof job.toolCall.function.arguments === "string"
       ? JSON.parse(job.toolCall.function.arguments)
       : job.toolCall.function.arguments
-    return await tool.execute((args ?? {}) as Record<string, unknown>, { configurable: job.toolConfig })
+    return await tool.execute((args ?? {}) as Record<string, unknown>, { configurable: job.toolConfig, signal: job.signal })
   } catch (error) {
     return toolErrorResult(toolName, (error as Error).message)
   }
+}
+
+/**
+ * Bounds a single tool execution to its own timeout window (per-operation, not
+ * an aggregate turn deadline). A slow tool loses its race and yields a normal
+ * error result — the underlying promise is left to settle on its own (main-thread
+ * tools have no cross-realm handle to kill), but the caller is freed to move on.
+ */
+export function executeInMainThreadWithTimeout(
+  job: { toolCall: ToolCallLike; allTools: RuntimeTool[]; toolConfig: ExecuteToolBatchOptions["toolConfig"]; signal?: AbortSignal },
+  timeoutMs: number,
+): Promise<unknown> {
+  const toolName = job.toolCall.function.name
+  return Promise.race([
+    executeInMainThread(job),
+    new Promise<unknown>((resolve) => {
+      setTimeout(() => resolve(toolErrorResult(toolName, `Tool execution timed out after ${timeoutMs}ms`)), timeoutMs)
+    }),
+  ])
 }
 
 class ToolWorkerPool {
   private workers: WorkerSlot[] = []
   private queue: QueuedJob[] = []
   private readonly maxWorkers: number
+  private disposed = false
 
   constructor(maxWorkers: number) {
     this.maxWorkers = Math.max(1, maxWorkers)
@@ -225,6 +263,18 @@ class ToolWorkerPool {
 
   execute(job: Omit<QueuedJob, "resolve" | "settled" | "startedAt">): Promise<ToolBatchResult> {
     return new Promise((resolve) => {
+      if (this.disposed) {
+        resolve({
+          toolCall: job.toolCall,
+          toolName: job.toolCall.function.name,
+          result: toolErrorResult(job.toolCall.function.name, "Tool runtime shut down"),
+          ok: false,
+          durationMs: 0,
+          error: { name: "AbortError", message: "Tool runtime shut down" },
+          aborted: true,
+        })
+        return
+      }
       this.queue.push({
         ...job,
         resolve,
@@ -272,14 +322,48 @@ class ToolWorkerPool {
   }
 
   dispose(): void {
+    this.disposed = true
+    const reason = "Tool runtime shut down"
+
+    for (const job of this.queue) {
+      if (job.settled) continue
+      job.settled = true
+      job.resolve({
+        toolCall: job.toolCall,
+        toolName: job.toolCall.function.name,
+        result: toolErrorResult(job.toolCall.function.name, reason),
+        ok: false,
+        durationMs: 0,
+        error: { name: "AbortError", message: reason },
+        aborted: true,
+      })
+    }
+    this.queue = []
+
     for (const slot of this.workers) {
+      const job = slot.job
+      if (job && !job.settled) {
+        job.settled = true
+        if (job.timer) clearTimeout(job.timer)
+        job.resolve({
+          toolCall: job.toolCall,
+          toolName: job.toolCall.function.name,
+          result: toolErrorResult(job.toolCall.function.name, reason),
+          ok: false,
+          durationMs: Math.round(performance.now() - job.startedAt),
+          error: { name: "AbortError", message: reason },
+          aborted: true,
+        })
+      }
+      slot.job = undefined
+      slot.busy = false
       slot.worker.terminate()
     }
     this.workers = []
-    this.queue = []
   }
 
   private drain(): void {
+    if (this.disposed) return
     while (this.queue.length > 0) {
       const slot = this.getIdleSlot()
       if (!slot) return
@@ -381,6 +465,7 @@ class ToolWorkerPool {
   ): Promise<void> {
     const job = slot.job
     if (!job || job.id !== message.jobId || job.settled) return
+    const worker = slot.worker
 
     try {
       const result = await executeInMainThread({
@@ -394,9 +479,15 @@ class ToolWorkerPool {
         allTools: job.allTools,
         toolConfig: job.toolConfig,
       })
-      slot.worker.postMessage({ type: "rpc_result", rpcId: message.rpcId, ok: true, result })
+      if (this.disposed || slot.job !== job || job.settled || slot.worker !== worker) return
+      worker.postMessage({ type: "rpc_result", rpcId: message.rpcId, ok: true, result })
     } catch (error) {
-      slot.worker.postMessage({ type: "rpc_result", rpcId: message.rpcId, ok: false, error: serializeError(error) })
+      if (this.disposed || slot.job !== job || job.settled || slot.worker !== worker) return
+      try {
+        worker.postMessage({ type: "rpc_result", rpcId: message.rpcId, ok: false, error: serializeError(error) })
+      } catch {
+        // El worker pudo terminar entre la comprobación y el envío.
+      }
     }
   }
 
@@ -439,6 +530,26 @@ function resolveRuntimeConfig(config?: ToolRuntimeConfig): Required<ToolRuntimeC
   }
 }
 
+/**
+ * Resolve the effective timeout (ms) for a single tool call.
+ * Priority: Tool.timeoutMs → config.tools.timeouts[name] → workerPool.toolTimeoutMs.
+ */
+function resolveToolTimeout(
+  toolName: string,
+  allTools: RuntimeTool[],
+  hiveConfig: Config,
+  baseTimeoutMs: number,
+): number {
+  // 1. Tool definition timeoutMs (carried on the RuntimeTool via ContextTool cast)
+  const def = allTools.find((t) => t.name === toolName)
+  if (def?.timeoutMs && def.timeoutMs > 0) return def.timeoutMs
+  // 2. config.tools.timeouts[name]
+  const cfgOverride = hiveConfig?.tools?.timeouts?.[toolName]
+  if (typeof cfgOverride === "number" && cfgOverride > 0) return cfgOverride
+  // 3. base (workerPool.toolTimeoutMs)
+  return baseTimeoutMs
+}
+
 function getPool(maxWorkers: number): ToolWorkerPool {
   if (!sharedPool || sharedPoolSize !== maxWorkers) {
     sharedPool = new ToolWorkerPool(maxWorkers)
@@ -471,11 +582,18 @@ export async function executeToolBatch(options: ExecuteToolBatchOptions): Promis
     const results: ToolBatchResult[] = []
     for (const toolCall of options.toolCalls) {
       const startedAt = performance.now()
-      const result = await executeInMainThread({
+      const effectiveTimeout = resolveToolTimeout(
+        toolCall.function.name,
+        options.allTools,
+        hiveConfig,
+        runtimeConfig.toolTimeoutMs,
+      )
+      const result = await executeInMainThreadWithTimeout({
         toolCall,
         allTools: options.allTools,
         toolConfig: options.toolConfig,
-      })
+        signal: options.signal,
+      }, effectiveTimeout)
       results.push({
         toolCall,
         toolName: toolCall.function.name,
@@ -502,7 +620,12 @@ export async function executeToolBatch(options: ExecuteToolBatchOptions): Promis
       toolConfig: options.toolConfig,
       hiveConfig,
       mainThreadToolNames,
-      timeoutMs: runtimeConfig.toolTimeoutMs,
+      timeoutMs: resolveToolTimeout(
+        toolCall.function.name,
+        options.allTools,
+        hiveConfig,
+        runtimeConfig.toolTimeoutMs,
+      ),
     })))
 
     return results.sort((a, b) => {

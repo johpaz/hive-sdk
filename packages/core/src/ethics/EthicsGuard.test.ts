@@ -1,54 +1,108 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+process.env.HIVE_DB_PATH = ":memory:";
+
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { EthicsGuard } from "./EthicsGuard.ts";
-import { getDb, initializeDatabase, dbService } from "../storage/SQLiteStorage.ts";
+import { closeHiveDb } from "../storage/hivedb.ts";
+import { ensureHiveDb } from "../storage/bootstrap.ts";
+import { col } from "../storage/hive.ts";
+import { toIndexable } from "../storage/hive.ts";
+import type { PlaybookDoc } from "../storage/collections.ts";
+
+async function addRule(id: string, rule: string, category: string, opts?: {
+	applicableTo?: string;
+	helpfulCount?: number;
+	active?: boolean;
+}) {
+	const playbookCol = await col<PlaybookDoc>("playbook");
+	const now = Date.now();
+	await playbookCol.put(id, {
+		id,
+		rule,
+		category,
+		applicable_to: opts?.applicableTo ?? null,
+		helpful_count: opts?.helpfulCount ?? 0,
+		harmful_count: 0,
+		active: opts?.active ?? true,
+		source_reflection_id: toIndexable(null),
+		created_at: now,
+		updated_at: now,
+	});
+}
+
+beforeEach(async () => {
+	closeHiveDb();
+	await ensureHiveDb();
+});
+
+afterEach(() => {
+	closeHiveDb();
+});
 
 describe("EthicsGuard", () => {
-	let db: any;
+	it("sólo devuelve reglas de response_quality activas", async () => {
+		await addRule("rq-1", "Verificá las fuentes antes de responder", "response_quality");
+		await addRule("rq-2", "Regla apagada", "response_quality", { active: false });
+		await addRule("otra", "Usá web_search para noticias", "tool_selection");
 
-	beforeAll(async () => {
-		await initializeDatabase();
-		db = getDb();
-		db.run(`
-			INSERT OR IGNORE INTO playbook (id, rule, category, applicable_to, helpful_count, active)
-			VALUES (1, 'Siempre verificar fuentes antes de responder', 'response_quality', 'agent', 5, 1)
-		`);
+		const rules = await new EthicsGuard().getRules();
+
+		expect(rules.map((r) => r.id)).toEqual(["rq-1"]);
 	});
 
-	afterAll(() => {
-		dbService.close();
+	it("ordena por helpful_count descendente", async () => {
+		await addRule("poco", "poco útil", "response_quality", { helpfulCount: 1 });
+		await addRule("mucho", "muy útil", "response_quality", { helpfulCount: 9 });
+
+		const rules = await new EthicsGuard().getRules();
+
+		expect(rules.map((r) => r.id)).toEqual(["mucho", "poco"]);
 	});
 
-	it("loads rules from DB", () => {
-		const guard = new EthicsGuard(db);
-		const rules = guard.getRules();
-		expect(Array.isArray(rules)).toBe(true);
+	it("filtra por agentRole cuando alguna regla lo declara", async () => {
+		await addRule("para-coord", "regla del coordinador", "response_quality", {
+			applicableTo: JSON.stringify(["coordinator"]),
+		});
+		await addRule("para-worker", "regla del worker", "response_quality", {
+			applicableTo: JSON.stringify(["worker"]),
+		});
+
+		const rules = await new EthicsGuard().getRules("coordinator");
+
+		expect(rules.map((r) => r.id)).toEqual(["para-coord"]);
 	});
 
-	it("injectIntoPrompt appends rules to system prompt", () => {
-		const guard = new EthicsGuard(db);
-		const rules = guard.getRules();
-		const result = guard.injectIntoPrompt("Eres un asistente.", rules);
+	it("cae a todas las reglas si ninguna declara ese rol", async () => {
+		// Sin esto, un `applicable_to` mal cargado dejaría al agente sin capa
+		// de calidad en vez de con una de más.
+		await addRule("generica", "regla general", "response_quality", {
+			applicableTo: JSON.stringify(["worker"]),
+		});
+
+		const rules = await new EthicsGuard().getRules("coordinator");
+
+		expect(rules.map((r) => r.id)).toEqual(["generica"]);
+	});
+
+	it("injectIntoPrompt agrega las reglas y conserva el prompt original", async () => {
+		await addRule("rq-1", "Verificá las fuentes", "response_quality");
+
+		const guard = new EthicsGuard();
+		const result = guard.injectIntoPrompt("Eres un asistente.", await guard.getRules());
+
 		expect(result).toContain("Eres un asistente.");
-		if (rules.length > 0) {
-			expect(result).toContain("Calidad de Respuesta");
-		}
+		expect(result).toContain("## Reglas de Calidad de Respuesta");
+		expect(result).toContain("- Verificá las fuentes");
 	});
 
-	it("hasEthicsLayer detects response quality rules", () => {
-		const guard = new EthicsGuard(db);
-		const has = guard.hasEthicsLayer();
-		expect(typeof has).toBe("boolean");
+	it("injectIntoPrompt devuelve el prompt intacto sin reglas", () => {
+		expect(new EthicsGuard().injectIntoPrompt("Eres un asistente.", [])).toBe("Eres un asistente.");
 	});
 
-	it("getRules accepts optional agentRole for FTS5 search", () => {
-		const guard = new EthicsGuard(db);
-		const rules = guard.getRules("agent");
-		expect(Array.isArray(rules)).toBe(true);
-	});
+	it("hasEthicsLayer refleja si hay reglas cargadas", async () => {
+		const guard = new EthicsGuard();
+		expect(await guard.hasEthicsLayer()).toBe(false);
 
-	it("getRules without agentRole returns all rules", () => {
-		const guard = new EthicsGuard(db);
-		const rules = guard.getRules();
-		expect(Array.isArray(rules)).toBe(true);
+		await addRule("rq-1", "Verificá las fuentes", "response_quality");
+		expect(await guard.hasEthicsLayer()).toBe(true);
 	});
 });

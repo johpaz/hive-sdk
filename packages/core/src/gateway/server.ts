@@ -8,7 +8,7 @@
  */
 
 import { logger } from "../utils/logger";
-import { runAgent } from "../agent/AgentRunner";
+import { runAgent } from "../agent/agent-loop.ts";
 import type { MCPClientManager } from "../mcp/index";
 
 const log = logger.child("gateway");

@@ -8,12 +8,12 @@
  */
 
 import type { Tool } from "../types.ts";
-import { getHiveDB } from "../../storage/HiveDBStorage.ts";
-import type { HiveProviderDoc, HiveModelDoc } from "../../storage/hiveSeed.ts";
+import { col } from "../../storage/hive.ts";
+import type { ProviderDoc, ModelDoc } from "../../storage/collections.ts";
 
 export const getAvailableModelsTool: Tool = {
   name: "get_available_models",
-  description: "Obtener lista de providers y modelos activos de la base de datos. Sinónimos: ver modelos, listar providers, modelos disponibles, consultar modelos, provider activo, qué modelos tengo, modelos para código, modelos para chat",
+  description: "Obtener el catálogo completo de modelos de los providers configurados (con credenciales activas) para elegir el más adecuado según capacidad, contexto o costo — no solo el modelo por defecto del usuario. Sinónimos: ver modelos, listar providers, modelos disponibles, consultar modelos, provider activo, qué modelos tengo, modelos para código, modelos para chat",
   parameters: {
     type: "object",
     properties: {
@@ -39,70 +39,52 @@ export const getAvailableModelsTool: Tool = {
     };
 
     try {
-      const db = await getHiveDB();
-      const providersCol = db.collection<HiveProviderDoc>("providers");
-      const modelsCol = db.collection<HiveModelDoc>("models");
-
-      const [providers, models] = await Promise.all([
-        providersCol.scan(),
-        modelsCol.scan(),
-      ]);
-
-      const activeProviders = new Map(
-        providers
-          .filter(p => p.doc.enabled && p.doc.active)
-          .map(p => [p.id, p.doc])
+      const providersCol = await col<ProviderDoc>("providers");
+      const providersById = new Map(
+        (await providersCol.scan({}))
+          .map(e => e.doc)
+          .filter(p => p.enabled && p.active)
+          .map(p => [p.id, p])
       );
 
-      let rows = models
-        .filter(m => m.doc.enabled && m.doc.active)
+      // Gate on the *provider* being configured (enabled + active, i.e. it has valid
+      // credentials) — not on the individual model's own `active` flag. `active` on a
+      // ModelDoc only marks the single model onboarding/voice-setup picked as the
+      // user's current default; it is not "this model is unusable". Once a provider is
+      // configured, every model under it should be visible so the caller can pick the
+      // one that actually fits the task (capability, context window, cost), instead of
+      // being stuck with whichever model happened to be flagged as the default.
+      const modelsCol = await col<ModelDoc>("models");
+      let models = (await modelsCol.scan({}))
+        .map(e => e.doc)
+        .filter(m => m.enabled && providersById.has(m.provider_id));
+
+      if (providerId) models = models.filter(m => m.provider_id === providerId);
+      if (modelType) models = models.filter(m => m.model_type === modelType);
+      if (capabilities) models = models.filter(m => (m.capabilities ?? "").includes(capabilities));
+
+      // Transformar a formato amigable
+      const result = models
         .map(m => {
-          const provider = activeProviders.get(m.doc.providerId);
-          if (!provider) return null;
+          const provider = providersById.get(m.provider_id)!;
           return {
             providerId: provider.id,
             providerName: provider.name,
             providerCategory: provider.category,
-            modelId: m.doc.id,
-            modelName: m.doc.name,
-            modelType: m.doc.modelType,
-            contextWindow: m.doc.contextWindow ?? null,
-            capabilities: m.doc.capabilities ?? null,
+            modelId: m.id,
+            modelName: m.name,
+            modelType: m.model_type,
+            contextWindow: m.context_window,
+            capabilities: m.capabilities ? JSON.parse(m.capabilities) : null,
+            isDefault: m.active,
           };
         })
-        .filter(Boolean) as Array<{
-          providerId: string;
-          providerName: string;
-          providerCategory: string;
-          modelId: string;
-          modelName: string;
-          modelType: string;
-          contextWindow: number | null;
-          capabilities: string[] | null;
-        }>;
-
-      if (providerId) {
-        rows = rows.filter(r => r.providerId === providerId);
-      }
-
-      if (modelType) {
-        rows = rows.filter(r => r.modelType === modelType);
-      }
-
-      if (capabilities) {
-        const cap = capabilities.toLowerCase();
-        rows = rows.filter(r => r.capabilities?.some(c => c.toLowerCase().includes(cap)));
-      }
-
-      rows.sort((a, b) => {
-        if (a.providerName !== b.providerName) return a.providerName.localeCompare(b.providerName);
-        return a.modelName.localeCompare(b.modelName);
-      });
+        .sort((a, b) => (Number(b.isDefault) - Number(a.isDefault)) || a.providerName.localeCompare(b.providerName) || a.modelName.localeCompare(b.modelName));
 
       return {
         ok: true,
-        count: rows.length,
-        models: rows,
+        count: result.length,
+        models: result,
       };
     } catch (error) {
       return {

@@ -10,7 +10,7 @@
  * concurrently without awaiting each one serially.
  */
 
-import { runAgentIsolated } from "../agent/AgentRunner.ts"
+import { runAgentIsolated } from "../agent/agent-loop.ts"
 import { TaskNode } from "./TaskNode"
 import { TaskTimeoutError } from "./errors"
 

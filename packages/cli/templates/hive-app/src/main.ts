@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 
 import {
-  createAgent,
   startGateway,
-  initializeDatabase,
+  ensureHiveDb,
   ChannelManager,
-  logger,
   loadConfig,
+  logger,
 } from "@johpaz/hive-sdk";
+import { coordinatorAgent } from "./agents/coordinator.ts";
 import config from "../hive.config.ts";
 
 const log = logger.child("app");
@@ -15,29 +15,22 @@ const log = logger.child("app");
 async function main() {
   log.info(`Starting {{APP_NAME}}...`);
 
-  // Initialize database
-  await initializeDatabase();
+  // Abre HiveDB, crea los índices y siembra el catálogo de providers y modelos.
+  // Es idempotente: correrlo en cada arranque es cómo se actualiza el catálogo.
+  await ensureHiveDb();
 
-  // Create the main agent
-  const agent = await createAgent({
-    name: "coordinator",
-    provider: "openai",
-    model: "gpt-4o-mini",
-    systemPrompt:
-      "You are a helpful AI assistant running in a Hive harness. You can use tools, manage tasks, and communicate across channels.",
-  });
+  log.info(`Agent ready: ${coordinatorAgent.name}`);
 
-  log.info(`Agent ready: ${agent.name}`);
-
-  // Initialize channels
-  const channelManager = new ChannelManager();
-  // TODO: configure channels from hive.config.ts
+  // Initialize channels. `loadConfig()` mezcla los defaults del SDK con
+  // hive.config.ts y el entorno; `config` sólo tiene lo que declaraste vos.
+  const channelManager = new ChannelManager(await loadConfig());
+  await channelManager.initialize();
 
   // Start the gateway
   const gateway = await startGateway({
     host: config.gateway?.host,
     port: config.gateway?.port,
-    agentId: "coordinator",
+    agentId: coordinatorAgent.id,
   });
 
   log.info(`{{APP_NAME}} is running at http://${gateway.hostname}:${gateway.port}`);

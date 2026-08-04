@@ -11,15 +11,18 @@ export { EventBridge } from "./EventBridge.ts";
 
 export { CyclicDependencyError, TaskTimeoutError, TaskFailureError } from "./errors.ts";
 
-export type { AgentBusEventMap, AgentBusEventKey, AgentBusEventHandler, AgentBusMessage } from "./AgentBus.ts";
-export { getUnreadMessagesForWorker, getProjectMessageHistory, agentBus } from "./AgentBus.ts";
-export type { AgentBus } from "./AgentBus.ts";
+// Los buses viven en events/. `swarm/AgentBus.ts` y `swarm/EventBus.ts` eran
+// copias que escribían a SQLite; se re-exportan desde acá para no romper a quien
+// los importaba por el subpath ./swarm.
+export type { AgentBusEventMap, AgentBusEventKey, AgentBusEventHandler, AgentBusMessage, AgentBus } from "../events/agent-bus.ts";
+export { getUnreadMessagesForWorker, agentBus } from "../events/agent-bus.ts";
 
-export type { EventMap, EventKey, EventHandler } from "./EventBus.ts";
-export { eventBus } from "./EventBus.ts";
-export type { TypedEventBus } from "./EventBus.ts";
+export type { EventMap, EventKey, EventHandler, TypedEventBus } from "../events/event-bus.ts";
+export { eventBus } from "../events/event-bus.ts";
 
-export { setSchedulerForCleanup, executeScheduledTask, notifyTaskCompletion, createTaskHandler } from "./WorkerPool.ts";
+// Ejecución de tareas agendadas: `swarm/WorkerPool.ts` era una copia rezagada de
+// scheduler/integration.ts (mismo archivo, 18 líneas de deriva).
+export { setSchedulerForCleanup, notifyTaskCompletion, createTaskHandler } from "../scheduler/integration.ts";
 
 export type { ExecutionStrategy } from "./strategies/index.ts";
 export { ParallelStrategy, PriorityStrategy } from "./strategies/index.ts";

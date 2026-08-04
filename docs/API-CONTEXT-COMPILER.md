@@ -41,7 +41,7 @@ El Context Compiler implementa 4 estrategias de Context Engineering:
 | Estrategia | Descripción |
 |------------|-------------|
 | **ESCRIBIR** | Guardar información fuera del contexto (Scratchpad, trazas) |
-| **SELECCIONAR** | Traer solo lo relevante (FTS5 tool/skill/playbook selection) |
+| **SELECCIONAR** | Traer solo lo relevante (selección BM25 de tool/skill/playbook) |
 | **COMPRIMIR** | Reducir tokens (compaction, tool result clearing) |
 | **AISLAR** | Separar contextos por agente (workers reciben contexto mínimo) |
 
@@ -114,55 +114,52 @@ Memoria temporal por hilo de conversación.
 
 ```typescript
 import { Scratchpad } from "@johpaz/hive-sdk";
-import { getDb } from "@johpaz/hive-sdk";
 
-const db = getDb();
-const pad = new Scratchpad(db);
+const pad = new Scratchpad();
 
-// Escribir nota
-pad.write("thread-1", "mi-nota", "contenido");
-
-// Leer nota
-const value = pad.read("thread-1", "mi-nota");
-
-// Listar notas de un hilo
-const all = pad.list("thread-1");
-
-// Eliminar nota
-pad.delete("thread-1", "mi-nota");
-
-// Limpiar todas las notas de un hilo
-pad.clear("thread-1");
+await pad.write("thread-1", "mi-nota", "contenido");
+const value = await pad.read("thread-1", "mi-nota");
+const all = await pad.list("thread-1");   // { "mi-nota": "contenido" }
+await pad.delete("thread-1", "mi-nota");
+await pad.clear("thread-1");
 ```
+
+El scratchpad se inyecta al system prompt en cada turno bajo
+`# SCRATCHPAD (Persistent Notes)`, comprimido con TOON. La clase es una fachada
+sobre las funciones de `conversation-store`: hasta 0.1.5 tenía implementación
+propia y, como usaba el mismo id, escribía las mismas filas con un documento
+incompleto que rompía el orden por recencia.
 
 ---
 
 ## EthicsGuard
 
-Guardián de reglas de calidad de respuesta desde la base de datos.
+Capa opcional de reglas de calidad de respuesta, leídas de la colección
+`playbook` (`category: "response_quality"`).
 
 ```typescript
 import { EthicsGuard } from "@johpaz/hive-sdk";
-import { getDb } from "@johpaz/hive-sdk";
 
-const db = getDb();
-const guard = new EthicsGuard(db);
+const guard = new EthicsGuard();
 
-// Obtener reglas
-const rules = guard.getRules();              // Todas
-const rulesForRole = guard.getRules("agent"); // Con FTS5
+const rules = await guard.getRules();                     // todas las activas
+const rulesForRole = await guard.getRules("coordinator"); // filtra por applicable_to
 
-// Inyectar en system prompt
-const prompt = guard.injectIntoPrompt(
-  "Eres un asistente.",
-  rules
-);
+const prompt = guard.injectIntoPrompt("Eres un asistente.", rules);
 
-// Verificar si hay reglas
-if (guard.hasEthicsLayer()) {
+if (await guard.hasEthicsLayer()) {
   console.log("Reglas de calidad activas");
 }
 ```
+
+> El constructor ya no recibe un handle de base y todos los métodos son async:
+> hasta 0.1.5 la clase armaba SQL a mano contra la tabla `playbook` y hacía un
+> JOIN con la tabla virtual `playbook_fts`. Ninguna de las dos existe.
+
+**Esto no es la ética constitucional del agente.** Esa vive en la colección
+`ethics` y la ensambla `buildSystemPrompt()` como primera sección, completa y sin
+comprimir. `EthicsGuard` es un complemento para hosts que quieran inyectar,
+además, reglas aprendidas por ACE.
 
 ---
 
@@ -178,7 +175,7 @@ import { saveTrace, recordLLMUsage } from "@hive/core/ace";
 // Guardar traza de ejecución
 saveTrace({
   agentId: "analyst",
-  model: "gpt-4o-mini",
+  model: "gpt-5.6-luna",
   messages: 5,
   toolCalls: ["web_search", "read_file"],
   durationMs: 1200,
@@ -188,7 +185,7 @@ saveTrace({
 
 // Registrar uso de LLM
 recordLLMUsage({
-  model: "gpt-4o-mini",
+  model: "gpt-5.6-luna",
   inputTokens: 200,
   outputTokens: 250,
   durationMs: 800,
