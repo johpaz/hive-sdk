@@ -1,6 +1,6 @@
 {
   "name": "@hive/cli",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Hive CLI — init, run, test, trace",
   "license": "MIT",
   "type": "module",
