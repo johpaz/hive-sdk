@@ -16,46 +16,40 @@
 
 process.env.HIVE_DB_PATH = ":memory:";
 
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { closeHiveDb } from "../packages/core/src/storage/hivedb";
 import { ensureHiveDb } from "../packages/core/src/storage/bootstrap";
-import * as crypto from "../packages/core/src/storage/crypto";
+import { storeProviderApiKey, deleteProviderSecrets } from "../packages/core/src/storage/crypto";
 import { resolveProviderConfig } from "../packages/core/src/agent/llm-client";
 
-const PROVIDER = "anthropic";
-const ENV_VAR = "ANTHROPIC_API_KEY";
+/**
+ * Un proveedor inventado sólo para este archivo. El secret store espeja al
+ * keychain del SO, que `HIVE_DB_PATH=":memory:"` no aísla: usar el id de un
+ * proveedor real pisaría la credencial de verdad de quien corra la suite.
+ */
+const PROVIDER = "test-tenant-isolation";
+const ENV_VAR = "TEST-TENANT-ISOLATION_API_KEY";
 
 let savedEnv: string | undefined;
-
-/**
- * El secret store real espeja al keychain del SO (`Bun.secrets`, service "hive"),
- * que NO lo aísla `HIVE_DB_PATH=":memory:"`: escribirlo desde un test pisaría la
- * credencial de verdad de quien corre la suite. Se stubea la lectura y nunca se
- * escribe nada fuera del proceso.
- */
-let storeKey = "";
-mock.module("../packages/core/src/storage/crypto", () => ({
-  ...crypto,
-  loadProviderApiKey: async () => storeKey,
-}));
 
 beforeEach(async () => {
   savedEnv = process.env[ENV_VAR];
   delete process.env[ENV_VAR];
-  storeKey = "";
   closeHiveDb();
   await ensureHiveDb();
 });
 
-afterEach(() => {
+afterEach(async () => {
   if (savedEnv === undefined) delete process.env[ENV_VAR];
   else process.env[ENV_VAR] = savedEnv;
+  // Borra también el espejo del keychain: el store no muere con la BD en memoria.
+  await deleteProviderSecrets(PROVIDER).catch(() => {});
   closeHiveDb();
 });
 
 describe("aislamiento multi-tenant: credenciales por llamada", () => {
   test("la key de la llamada gana sobre el secret store global", async () => {
-    storeKey = "key-del-host";
+    await storeProviderApiKey(PROVIDER, "key-del-host");
 
     const cfg = await resolveProviderConfig(PROVIDER, "claude-x", { apiKey: "key-del-inquilino" });
     expect(cfg.apiKey).toBe("key-del-inquilino");
@@ -70,7 +64,7 @@ describe("aislamiento multi-tenant: credenciales por llamada", () => {
 
   test("dos inquilinos concurrentes no se pisan la credencial", async () => {
     // La key global existe y es la que se filtraba antes.
-    storeKey = "key-del-host";
+    await storeProviderApiKey(PROVIDER, "key-del-host");
     process.env[ENV_VAR] = "key-del-entorno";
 
     const [a, b, c] = await Promise.all([
@@ -109,7 +103,7 @@ describe("aislamiento multi-tenant: credenciales por llamada", () => {
 
 describe("aislamiento multi-tenant: retrocompatibilidad", () => {
   test("sin credencial en la llamada se usa el secret store, como siempre", async () => {
-    storeKey = "key-del-host";
+    await storeProviderApiKey(PROVIDER, "key-del-host");
 
     const cfg = await resolveProviderConfig(PROVIDER, "claude-x");
     expect(cfg.apiKey).toBe("key-del-host");
@@ -123,7 +117,7 @@ describe("aislamiento multi-tenant: retrocompatibilidad", () => {
   });
 
   test("una credencial parcial no anula el fallback de la key", async () => {
-    storeKey = "key-del-host";
+    await storeProviderApiKey(PROVIDER, "key-del-host");
 
     // Sólo baseUrl: la key sigue resolviéndose por el camino de siempre.
     const cfg = await resolveProviderConfig(PROVIDER, "claude-x", { baseUrl: "https://x.example" });

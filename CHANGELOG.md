@@ -42,6 +42,15 @@
   `sessionPersistenceEnabled`— siguen corriendo siempre: son los que cubren el
   contrato del backend.
 
+- **Se quitó un `mock.module` que se filtraba entre archivos de test.** El test
+  de aislamiento multi-tenant sustituía el módulo `storage/crypto` para no
+  escribir en el keychain del SO. `mock.module` es global al proceso, no al
+  archivo: mientras estuviera activo, cualquier otro test que importara ese
+  módulo recibía el doble, y `loadProviderApiKey` devolvía la key del mock. Que
+  mordiera dependía del orden de ejecución — pasaba en local y fallaba en CI.
+  Ahora el test usa un id de proveedor propio (`test-tenant-isolation`) y limpia
+  sus secretos, sin tocar el módulo ni la credencial de nadie.
+
 - **`resetKeychainProbe()`** en `storage/crypto.ts`. Si el keychain del SO no
   responde, el resultado se cachea a nivel de módulo para no reintentar en cada
   lectura — correcto en producción, pero significa que el primer sondeo vale
