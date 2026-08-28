@@ -1,5 +1,5 @@
-import type { ToolDefinition } from "./ToolRegistry";
-import type { ToolRegistry } from "./ToolRegistry";
+import type { ToolDefinition } from "./ToolRegistry.ts";
+import type { ToolRegistry } from "./ToolRegistry.ts";
 
 export interface ToolExecutionResult {
   toolName: string;
@@ -10,7 +10,11 @@ export interface ToolExecutionResult {
 }
 
 export class ToolExecutor {
-  constructor(private registry: ToolRegistry) {}
+  private registry: ToolRegistry;
+
+  constructor(registry: ToolRegistry) {
+    this.registry = registry;
+  }
 
   async execute(
     name: string,

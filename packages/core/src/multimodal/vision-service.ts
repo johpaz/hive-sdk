@@ -1,9 +1,9 @@
-import { col } from "../storage/hive"
-import type { ChannelDoc, ModelDoc, ProviderDoc } from "../storage/collections"
-import { loadProviderApiKey } from "../storage/crypto"
-import { logger } from "../utils/logger"
-import type { ImageInput, DocumentInput, VisionConfig } from "./types"
-import type { ContentPart } from "./types"
+import { col } from "../storage/hive.ts"
+import type { ChannelDoc, ModelDoc, ProviderDoc } from "../storage/collections.ts"
+import { loadProviderApiKey } from "../storage/crypto.ts"
+import { logger } from "../utils/logger.ts"
+import type { ImageInput, DocumentInput, VisionConfig } from "./types.ts"
+import type { ContentPart } from "./types.ts"
 
 const log = logger.child("multimodal")
 

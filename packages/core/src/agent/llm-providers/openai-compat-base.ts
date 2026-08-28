@@ -1,11 +1,11 @@
-import { logger } from "../../utils/logger"
+import { logger } from "../../utils/logger.ts"
 import {
   sanitizeMessages, requiresTemperature1, OPENAI_COMPAT_BASE_URLS,
   getProviderProfile, modelSupportsTools, normalizeToolName, normalizeToolSchema,
   resolveMaxTokens,
-} from "./interface"
-import type { LLMCallOptions, LLMProvider, LLMResponse, LLMToolCall } from "./interface"
-import type { ContentPart, LLMMessage } from "../llm-client"
+} from "./interface.ts"
+import type { LLMCallOptions, LLMProvider, LLMResponse, LLMToolCall } from "./interface.ts"
+import type { ContentPart, LLMMessage } from "../llm-client.ts"
 
 const log = logger.child("llm-client")
 
@@ -44,7 +44,11 @@ function compactBodyForContextOverflow(body: any, err: any): void {
 }
 
 export abstract class OpenAICompatBase implements LLMProvider {
-  constructor(protected readonly providerName: string) {}
+  protected readonly providerName: string
+
+  constructor(providerName: string) {
+    this.providerName = providerName
+  }
 
   /** Override to true when the provider requires reasoning_content to be round-tripped. */
   protected needsReasoningRoundtrip(): boolean { return false }

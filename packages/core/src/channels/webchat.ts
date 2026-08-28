@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { BaseChannel, type ChannelConfig, type IncomingMessage, type OutboundMessage } from "./base.ts";
 import { logger } from "../utils/logger.ts";
-import { resolveUserId } from "../storage/onboarding";
+import { resolveUserId } from "../storage/onboarding.ts";
 
 export interface WebChatConfig extends ChannelConfig {
   accountId?: string;

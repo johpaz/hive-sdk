@@ -1,5 +1,5 @@
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { logger } from "../logger";
+import { logger } from "../logger.ts";
 
 export interface SSETransportConfig {
   url: string;                        // URL base

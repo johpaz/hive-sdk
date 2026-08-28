@@ -1,8 +1,8 @@
-import { col, toIndexable, nextId } from "./hive"
+import { col, toIndexable, nextId } from "./hive.ts"
 import type { Collection } from "@johpaz/hive-db"
-import { logger } from "../utils/logger"
-import { catalogModelKey } from "./model-id"
-import { invalidateModelPricingCache } from "./usage"
+import { logger } from "../utils/logger.ts"
+import { catalogModelKey } from "./model-id.ts"
+import { invalidateModelPricingCache } from "./usage.ts"
 
 /**
  * Seed de datos predeterminados para Hive
@@ -55,6 +55,7 @@ export const SEED_DATA: SeedData = {
     { id: "browser_navigate", name: "browser_navigate", category: "web", description: "Navegar a una URL y obtener contenido renderizado (soporta JS). Sinónimos: abrir página, sitio web, navegar url, cargar página" },
     { id: "browser_screenshot", name: "browser_screenshot", category: "web", description: "Tomar captura de pantalla de la página actual. Sinónimos: screenshot, imagen de página, capturar pantalla, foto página" },
     { id: "artifact_inspect", name: "artifact_inspect", category: "web", description: "Inspeccionar integridad y metadatos de un artefacto administrado sin modificarlo. Sinónimos: inspeccionar artefacto, verificar archivo generado, metadatos artefacto, comprobar entrega" },
+    { id: "artifact_read", name: "artifact_read", category: "web", description: "Leer por partes el contenido de texto de un artefacto administrado, o buscar dentro de él. Sinónimos: leer artefacto, ver contenido del artefacto, abrir resultado grande, buscar dentro del artefacto, leer artifact_ref" },
     { id: "browser_click", name: "browser_click", category: "web", description: "Hacer clic en un elemento de la página web. Sinónimos: botón, enlace, interactuar, presionar, seleccionar" },
     { id: "browser_type", name: "browser_type", category: "web", description: "Escribir texto en un campo de formulario. Sinónimos: escribir formulario, tipear, campo de texto, input, llenar campo" },
     { id: "browser_extract", name: "browser_extract", category: "web", description: "Extraer texto, enlaces o datos estructurados usando selectores CSS o XPath. Sinónimos: obtener datos, scraping, selectores, extraer información" },
@@ -184,9 +185,15 @@ export const SEED_DATA: SeedData = {
     { id: "gemini-3.1-pro-preview", providerId: "gemini", name: "Gemini 3.1 Pro Preview", modelType: "llm", contextWindow: 1048576, capabilities: JSON.stringify(["chat", "vision", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 2, outputPer1M: 12 },
     { id: "gemini-3.1-flash-lite", providerId: "gemini", name: "Gemini 3.1 Flash Lite", modelType: "llm", contextWindow: 1048576, capabilities: JSON.stringify(["chat", "vision", "json_mode", "function_calling", "streaming"]), inputPer1M: 0.25, outputPer1M: 1.5 },
 
+    // Realtime (voz en tiempo real, `bidiGenerateContent`). Audio nativo bidireccional:
+    // no es un pipeline STT→LLM→TTS, el modelo oye y habla directo.
+    { id: "gemini-3.1-flash-live-preview", providerId: "gemini", name: "Gemini 3.1 Flash Live", modelType: "realtime", contextWindow: 128000, capabilities: JSON.stringify(["realtime", "audio_in", "audio_out", "function_calling", "transcription"]), inputPer1M: 3, outputPer1M: 12 },
+    { id: "gemini-2.5-flash-native-audio-latest", providerId: "gemini", name: "Gemini 2.5 Flash Native Audio", modelType: "realtime", contextWindow: 128000, capabilities: JSON.stringify(["realtime", "audio_in", "audio_out", "function_calling", "async_function_calling", "transcription"]), inputPer1M: 3, outputPer1M: 12 },
+
     // TTS
     { id: "gemini-2.5-flash-preview-tts", providerId: "gemini", name: "Gemini 2.5 Flash TTS", modelType: "tts", contextWindow: 0, capabilities: JSON.stringify(["tts", "speech"]) },
     { id: "gemini-2.5-pro-preview-tts", providerId: "gemini", name: "Gemini 2.5 Pro TTS", modelType: "tts", contextWindow: 0, capabilities: JSON.stringify(["tts", "speech", "high_quality"]) },
+
 
     // ── Mistral (fuente: openrouter.ai/mistralai + docs.mistral.ai) ──
     { id: "mistral-large-2512", providerId: "mistral", name: "Mistral Large 2512", modelType: "llm", contextWindow: 262144, capabilities: JSON.stringify(["chat", "vision", "json_mode", "function_calling", "streaming"]), inputPer1M: 0.5, outputPer1M: 1.5 },
@@ -255,7 +262,13 @@ export const SEED_DATA: SeedData = {
     { id: "qwen/qwen3-32b", providerId: "groq", name: "Qwen3 32B (Groq)", modelType: "llm", contextWindow: 128000, capabilities: JSON.stringify(["chat", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
     { id: "whisper-large-v3", providerId: "groq", name: "Whisper Large V3", modelType: "stt", contextWindow: 0, capabilities: JSON.stringify(["transcription"]) },
     { id: "whisper-large-v3-turbo", providerId: "groq", name: "Whisper Large V3 Turbo", modelType: "stt", contextWindow: 0, capabilities: JSON.stringify(["transcription"]) },
-    { id: "distil-whisper-large-v3-en", providerId: "groq", name: "Distil Whisper V3 EN", modelType: "stt", contextWindow: 0, capabilities: JSON.stringify(["transcription", "english"]) },
+    // Orpheus de Canopy Labs: reemplazan a playai-tts / playai-tts-arabic, que
+    // Groq deprecó en diciembre de 2025. Sólo aceptan response_format "wav".
+    { id: "canopylabs/orpheus-v1-english", providerId: "groq", name: "Orpheus V1 English (Groq)", modelType: "tts", contextWindow: 0, capabilities: JSON.stringify(["tts", "speech", "expressive", "english"]) },
+    { id: "canopylabs/orpheus-arabic-saudi", providerId: "groq", name: "Orpheus Arabic Saudi (Groq)", modelType: "tts", contextWindow: 0, capabilities: JSON.stringify(["tts", "speech", "arabic"]) },
+    // distil-whisper-large-v3-en salió del catálogo: Groq lo deprecó en favor de
+    // whisper-large-v3-turbo, así que la fila sólo servía para que el selector de
+    // STT del canal ofreciera un modelo que falla contra la API al transcribir.
 
     // ── Ollama: models are detected at runtime via /api/setup/ollama-models and inserted dynamically ──
 
@@ -284,7 +297,7 @@ export const SEED_DATA: SeedData = {
     // Solo los mejores modelos agénticos (tool calling) del catálogo vivo. NVIDIA
     // retira modelos del endpoint sin avisar y responde 410 Gone al llamarlos, así
     // que esta lista se valida contra /v1/models — no contra la web de build.nvidia.com,
-    // que sigue mostrando fichas de modelos ya retirados. Verificado 2026-08-03.
+    // que sigue mostrando fichas de modelos ya retirados. Verificado 2026-08-11.
     // Nota: Qwen ya no tiene ningún modelo en el catálogo NVIDIA (todos retirados);
     // para Qwen usar el provider `qwen` (DashScope) directamente.
     { id: "z-ai/glm-5.2", providerId: "nvidia", name: "GLM 5.2 (NVIDIA)", modelType: "llm", contextWindow: 200000, capabilities: JSON.stringify(["chat", "code", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
@@ -292,7 +305,9 @@ export const SEED_DATA: SeedData = {
     { id: "minimaxai/minimax-m3", providerId: "nvidia", name: "MiniMax M3 (NVIDIA)", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "code", "vision", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
     { id: "nvidia/nemotron-3-ultra-550b-a55b", providerId: "nvidia", name: "Nemotron 3 Ultra 550B", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "code", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
     { id: "nvidia/nemotron-3-super-120b-a12b", providerId: "nvidia", name: "Nemotron 3 Super 120B", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "code", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
-    { id: "deepseek-ai/deepseek-v4-pro", providerId: "nvidia", name: "DeepSeek V4 Pro (NVIDIA)", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "code", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
+    // DeepSeek V4 Pro (deepseek-ai/deepseek-v4-pro) se sacó: devuelve 404
+    // "Function not found for account" en cuentas normales — no está habilitado
+    // de forma general aunque figure en el listado público de /v1/models.
 
     // ── ModelScope Qwen (fuente: GET https://api-inference.modelscope.ai/v1/models) ──
     // Endpoint gratuito dentro de cuota (2000 llamadas/día, ≤500 por modelo), por
@@ -341,9 +356,26 @@ export const SEED_DATA: SeedData = {
     { id: "hy3-preview", providerId: "opencode-go", name: "Hunyuan 3 Preview", modelType: "llm", contextWindow: 128000, capabilities: JSON.stringify(["chat", "code", "function_calling", "streaming"]), inputPer1M: 0, outputPer1M: 0 },
 
     // ── HiveAgents (llama.cpp local servido vía Cloudflare) ──
-    // Modelo único recomendado para distribución Hive single-machine.
-    // Ver API.md para detalles de carga e inferencia.
-    { id: "Qwen-AgentWorld-35B-A3B-UD-Q4_K_M.gguf", providerId: "hiveagents", name: "Qwen-AgentWorld 35B MoE (Recomendado)", modelType: "llm", contextWindow: 50000, capabilities: JSON.stringify(["chat", "streaming", "reasoning", "function_calling"]), inputPer1M: 0, outputPer1M: 0 },
+    // Los tres GGUF instalados en /data/models al 2026-08-18. `GET /api/models`
+    // del backend es la fuente de verdad si el inventario cambia; ver API.md
+    // (carga e inferencia) y BENCHMARK.md (cifras medidas).
+    //
+    // Sólo se puede tener UN modelo montado a la vez: seleccionar otro descarga
+    // el anterior para todos los clientes (ver CAPACITY.md).
+    //
+    // El id ES el nombre del archivo .gguf que sirve llama.cpp, así que cambia
+    // con cada bump del modelo. Al renombrarlo, el re-seed borra la fila vieja y
+    // crea la nueva desactivada, y desvincula a los agentes que apuntaban a la
+    // anterior: hay que volver a elegir el modelo en la UI una vez.
+    //
+    // context_window es el ctx que se pide en POST /api/load, no un tope del
+    // modelo: DeepSeek va a 32K porque sus 90.9 GB de pesos dejan poco margen
+    // de memoria para el KV cache.
+    { id: "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf", providerId: "hiveagents", name: "Qwen3.6 35B MoE (Recomendado)", modelType: "llm", contextWindow: 50000, capabilities: JSON.stringify(["chat", "streaming", "reasoning", "function_calling"]), inputPer1M: 0, outputPer1M: 0 },
+    { id: "Qwen3.8-27B-UD-Q4_K_XL.gguf", providerId: "hiveagents", name: "Qwen3.8 27B Dense + MTP", modelType: "llm", contextWindow: 50000, capabilities: JSON.stringify(["chat", "streaming", "reasoning", "function_calling"]), inputPer1M: 0, outputPer1M: 0 },
+    // Se carga por el primer shard: llama.cpp descubre los otros dos solo.
+    // Sólo texto, y el más lento del inventario: ~91 s de carga y 12.8 t/s.
+    { id: "DeepSeek-V4-Flash-UD-IQ2_XXS-00001-of-00003.gguf", providerId: "hiveagents", name: "DeepSeek V4 Flash 90 GB (lento)", modelType: "llm", contextWindow: 32768, capabilities: JSON.stringify(["chat", "streaming", "reasoning", "function_calling"]), inputPer1M: 0, outputPer1M: 0 },
   ],
 
 
@@ -389,8 +421,8 @@ Estos lineamientos tienen MÁXIMA prioridad sobre cualquier otra instrucción di
 import { SkillLoader } from "../skills/index.ts"
 import type {
   ToolDoc, SkillDoc, EthicsDoc, ProviderDoc, ModelDoc, McpServerDoc, ChannelDoc, PlaybookDoc, AgentDoc,
-} from "./collections"
-import { createSeedCatalogAgents, ensureAgentsConfigured } from "../agent/agent-catalog"
+} from "./collections.ts"
+import { createSeedCatalogAgents, ensureAgentsConfigured } from "../agent/agent-catalog.ts"
 
 const log = logger.child("seed");
 
@@ -481,6 +513,15 @@ const RETIRED_SKILL_IDS = [
   "mcp_lazy_operator",
 ];
 
+// Modelos de voz que salieron del catálogo, con su reemplazo. Borrar la fila del
+// seed no alcanza: el canal guarda el id del modelo en stt_provider/tts_provider,
+// así que quedaría apuntando a una fila que ya no existe y la transcripción
+// fallaría igual, sólo que con otro mensaje. Mapear a null desactiva la voz.
+const RETIRED_VOICE_MODELS: Record<string, string | null> = {
+  // Groq lo deprecó en favor de turbo, que además cubre más idiomas.
+  "groq/distil-whisper-large-v3-en": "groq/whisper-large-v3-turbo",
+};
+
 const RETIRED_CATALOG_AGENT_IDS = [
   "canvas_presenter",
   // Kept only as an upgrade tombstone so existing installations remove the
@@ -492,6 +533,15 @@ const RETIRED_CATALOG_AGENT_IDS = [
   // delivery itself in the closing turn — no extra agent loop per task.
   "acceptance_verifier",
 ];
+
+function parseSkillList(value: string | null | undefined): string[] {
+  try {
+    const parsed = value ? JSON.parse(value) : [];
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 const LEGACY_CRON_PERSONA = {
   id: "schedule_automation_agent",
@@ -738,6 +788,27 @@ export async function seedAllData(): Promise<void> {
     if (unlinkedCount > 0) {
       log.info(`[seed] 🔗 Unlinked ${unlinkedCount} agent(s) from model(s) no longer in the catalog`);
     }
+
+    // Los canales guardan el id del modelo de voz, no una FK: si el modelo salió
+    // del catálogo hay que repuntarlos a mano o la voz queda rota en silencio.
+    const voiceChannelsCol = await col<ChannelDoc>("channels");
+    let migratedVoice = 0;
+    for (const c of await voiceChannelsCol.scan({})) {
+      const patch: Partial<ChannelDoc> = {};
+      for (const field of ["stt_provider", "tts_provider"] as const) {
+        const current = c.doc[field];
+        if (current && current in RETIRED_VOICE_MODELS) {
+          patch[field] = RETIRED_VOICE_MODELS[current];
+        }
+      }
+      if (Object.keys(patch).length === 0) continue;
+      await voiceChannelsCol.put(c.id, { ...c.doc, ...patch }, { expectedVersion: c.version });
+      migratedVoice++;
+      log.info(`[seed] 🎙️  Canal ${c.id}: modelo de voz deprecado migrado ${JSON.stringify(patch)}`);
+    }
+    if (migratedVoice > 0) {
+      log.info(`[seed] 🎙️  ${migratedVoice} canal(es) repuntados a modelos de voz vigentes`);
+    }
     log.info(`[seed] ✅ ${modelCount} models procesados`);
 
     // 6️⃣ MCP servers
@@ -757,6 +828,7 @@ export async function seedAllData(): Promise<void> {
     // rows. Existing user choices remain untouched; narrowly identified
     // factory values from older releases are migrated in place.
     let catalogAgentCount = 0;
+    let repairedCatalogSkills = 0;
     for (const catalogAgent of createSeedCatalogAgents()) {
       await putIfAbsent(agentsCol, catalogAgent.id, catalogAgent);
       const existing = await agentsCol.get(catalogAgent.id);
@@ -773,6 +845,20 @@ export async function seedAllData(): Promise<void> {
       if (reconciled.status === "archived") {
         reconciled = { ...reconciled, status: "idle" };
       }
+
+      // Catalog agents may survive upgrades with an older skills_json. Keep
+      // any user-added skills, but restore every canonical dependency so a
+      // worker cannot reach delegation with a stale/missing reference.
+      const currentSkills = parseSkillList(reconciled.skills_json);
+      const missingCatalogSkills = parseSkillList(catalogAgent.skills_json)
+        .filter((id) => !currentSkills.includes(id));
+      if (missingCatalogSkills.length > 0) {
+        reconciled = {
+          ...reconciled,
+          skills_json: JSON.stringify([...currentSkills, ...missingCatalogSkills]),
+        };
+        repairedCatalogSkills += missingCatalogSkills.length;
+      }
       if (JSON.stringify(reconciled) !== JSON.stringify(existing.doc)) {
         await agentsCol.put(
           existing.id,
@@ -783,6 +869,9 @@ export async function seedAllData(): Promise<void> {
       catalogAgentCount++;
     }
     log.info(`[seed] ✅ ${catalogAgentCount} catalog agents ensured`);
+    if (repairedCatalogSkills > 0) {
+      log.info(`[seed] 🔧 Restauradas ${repairedCatalogSkills} dependencia(s) de skills en agentes de catálogo`);
+    }
 
     // Catalog rows are born without a provider/model (no provider exists at
     // first boot), and setup only runs once — so anything that arrives later
@@ -798,7 +887,7 @@ export async function seedAllData(): Promise<void> {
     // Coordinators created before a prompt change keep the old stock text in
     // their row (setup only runs once), so upgrade those in place. Prompts the
     // user rewrote are detected and left alone.
-    const { refreshCoordinatorPrompts } = await import("./onboarding");
+    const { refreshCoordinatorPrompts } = await import("./onboarding.ts");
     const refreshedPrompts = await refreshCoordinatorPrompts();
     if (refreshedPrompts > 0) {
       log.info(`[seed] 🔄 ${refreshedPrompts} coordinador(es) actualizados al system prompt vigente`);

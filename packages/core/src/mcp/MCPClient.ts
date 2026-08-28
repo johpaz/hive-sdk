@@ -1,12 +1,12 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { MCPConfig, MCPServerConfig } from "./config";
-import { logger, type LogHandler } from "./logger";
+import type { MCPConfig, MCPServerConfig } from "./config.ts";
+import { logger, type LogHandler } from "./logger.ts";
 import * as path from "node:path";
 import {
   createTransport,
   type TransportType,
-} from "./transports/index";
+} from "./transports/index.ts";
 
 export interface MCPTool {
   name: string;

@@ -5,11 +5,11 @@
  * path guarantees only one process wins the race for the same job.
  */
 
-import { col, nextId, updateDoc, toIndexable } from "../storage/hive";
-import type { JobDoc } from "../storage/collections";
-import { getBootId } from "../storage/boot-id";
-import { logger } from "../utils/logger";
-import { loadConfig } from "../config/loader";
+import { col, nextId, updateDoc, toIndexable } from "../storage/hive.ts";
+import type { JobDoc } from "../storage/collections.ts";
+import { getBootId } from "../storage/boot-id.ts";
+import { logger } from "../utils/logger.ts";
+import { loadConfig } from "../config/loader.ts";
 
 const log = logger.child("job-store");
 

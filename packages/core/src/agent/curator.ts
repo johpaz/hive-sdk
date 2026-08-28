@@ -13,8 +13,8 @@
  * (id="curator:lastReflection") instead of SQL's MAX(source_reflection_id).
  */
 
-import { logger } from "../utils/logger"
-import { col, nextId, toIndexable, fromIndexable } from "../storage/hive"
+import { logger } from "../utils/logger.ts"
+import { col, nextId, toIndexable, fromIndexable } from "../storage/hive.ts"
 import type {
   ReflectionDoc,
   PlaybookDoc,
@@ -22,7 +22,7 @@ import type {
   CursorDoc,
   AgentProposalDoc,
   TraceDoc,
-} from "../storage/collections"
+} from "../storage/collections.ts"
 
 const log = logger.child("curator")
 
@@ -149,7 +149,7 @@ async function curateAgentStructure(): Promise<void> {
     })
   }
 
-  const { syncCatalogAgentsToIndex } = await import("./catalog-selector")
+  const { syncCatalogAgentsToIndex } = await import("./catalog-selector.ts")
   await syncCatalogAgentsToIndex()
 }
 

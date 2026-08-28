@@ -6,7 +6,7 @@
  */
 
 import { encode, decode, analyzeCompression } from 'toon-format-parser'
-import { logger } from './logger'
+import { logger } from './logger.ts'
 import { recordToonSavings } from '../storage/usage.ts'
 
 const log = logger.child('toon')

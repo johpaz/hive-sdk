@@ -3,9 +3,9 @@ import type {
   AgentAcceptanceCriterion,
   AgentModelOverride,
   AgentWorkspaceScope,
-} from "../storage/collections";
-import { col, toIndexable, fromIndexable } from "../storage/hive";
-import { expandToolAllowlist } from "./delegation-runtime";
+} from "../storage/collections.ts";
+import { col, toIndexable, fromIndexable } from "../storage/hive.ts";
+import { expandToolAllowlist } from "./delegation-runtime.ts";
 
 interface CatalogPersona {
   id: string;

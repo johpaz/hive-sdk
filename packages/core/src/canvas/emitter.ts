@@ -1,5 +1,5 @@
-import { col, fromIndexable } from "../storage/hive"
-import type { AgentDoc, McpServerDoc } from "../storage/collections"
+import { col, fromIndexable } from "../storage/hive.ts"
+import type { AgentDoc, McpServerDoc } from "../storage/collections.ts"
 
 export interface CanvasEvent {
   type: CanvasEventType

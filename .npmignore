@@ -56,3 +56,8 @@ temp/
 .cache/
 .parcel-cache/
 .eslintcache
+
+# Tests — el paquete publica el runtime, no su suite. `files` ya deja fuera
+# test/, pero los *.test.ts conviven con el código dentro de packages/*/src.
+*.test.ts
+**/*.test.ts

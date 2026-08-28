@@ -40,7 +40,8 @@ export interface ModelDoc {
   id: string
   provider_id: string
   name: string
-  model_type: "llm" | "stt" | "tts" | "vision" | "embedding"
+  /** "realtime": voz full-duplex (Live API), no confundir con stt+tts encadenados. */
+  model_type: "llm" | "stt" | "tts" | "vision" | "embedding" | "realtime"
   context_window: number
   capabilities: string | null
   enabled: boolean
@@ -269,6 +270,14 @@ export interface RefreshTokenDoc {
 export type TurnSource =
   | "message" | "audio" | "a2ui" | "canvas" | "api"
   | "task_complete" | "delegation_summary"
+  /** Turno hablado en una sesión de voz en tiempo real. A diferencia de "audio"
+   *  (nota de voz: STT → turno → TTS) la voz la pone el modelo realtime, así que
+   *  el turno nunca sintetiza audio al final. */
+  | "realtime"
+  /** Charla hablada que la voz YA resolvió sin tocar la colmena. Se guarda como
+   *  contexto del hilo, nunca como pedido pendiente: tratarla como accionable
+   *  hacía que el coordinador re-delegara todo lo que se había dicho en voz. */
+  | "realtime_chat"
 
 /** What gets persisted — adds the synthetic marker for rows written before `source` existed. */
 export type MessageSource = TurnSource | "legacy_internal"
@@ -296,6 +305,28 @@ export interface SummaryDoc {
   summary: string
   messages_covered: number
   last_message_id: string | null
+}
+
+/**
+ * Una conversación: el registro de un `conversations.thread_id`, con lo necesario
+ * para listarla en la web sin escanear los mensajes. `id` ES el threadId
+ * (`${user}/${canal}/${peer}` — ver agent/thread-id.ts), salvo la fila del hilo
+ * legacy anterior a la separación por canal, cuyo id es el userId pelado.
+ */
+export interface ConversationThreadDoc {
+  id: string
+  user_id: string
+  channel: string
+  /** Contacto/grupo del canal, o el id de conversación en la web. */
+  peer_id: string
+  peer_kind: "direct" | "group"
+  /** null hasta el primer mensaje del usuario, de donde se deriva. */
+  title: string | null
+  /** Borrado suave: sigue en la base pero no se lista ni se reabre. */
+  archived: boolean
+  created_at: number
+  last_message_at: number
+  message_count: number
 }
 
 export interface TraceDoc {

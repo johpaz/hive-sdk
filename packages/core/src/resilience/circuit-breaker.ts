@@ -39,10 +39,16 @@ export class CircuitBreaker {
   private totalFailures = 0;
   private totalSuccesses = 0;
 
+  private readonly name: string;
+  private readonly options: CircuitBreakerOptions;
+
   constructor(
-    private readonly name: string,
-    private readonly options: CircuitBreakerOptions = defaultOptions
-  ) { }
+    name: string,
+    options: CircuitBreakerOptions = defaultOptions
+  ) {
+    this.name = name;
+    this.options = options;
+  }
 
   async execute<T>(fn: () => Promise<T>): Promise<T> {
     if (this.state === "open") {
@@ -175,12 +181,17 @@ export class CircuitBreaker {
 }
 
 export class CircuitBreakerOpenError extends Error {
+  public readonly circuitName: string;
+  public readonly retryAfterMs: number;
+
   constructor(
     message: string,
-    public readonly circuitName: string,
-    public readonly retryAfterMs: number
+    circuitName: string,
+    retryAfterMs: number
   ) {
     super(message);
+    this.circuitName = circuitName;
+    this.retryAfterMs = retryAfterMs;
     this.name = "CircuitBreakerOpenError";
   }
 }

@@ -313,11 +313,19 @@ export class Logger {
 }
 
 export class ChildLogger {
+  private parent: Logger;
+  private context: string;
+  private correlationContext: LogMeta;
+
   constructor(
-    private parent: Logger,
-    private context: string,
-    private correlationContext: LogMeta = {}
-  ) { }
+    parent: Logger,
+    context: string,
+    correlationContext: LogMeta = {}
+  ) {
+    this.parent = parent;
+    this.context = context;
+    this.correlationContext = correlationContext;
+  }
 
   private prefix(message: string): string {
     return `[${this.context}] ${message}`;

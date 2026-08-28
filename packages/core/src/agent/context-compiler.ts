@@ -21,27 +21,28 @@
  * TODOS los datos se formatean en TOON para ahorro de tokens.
  */
 
-import { col, fromIndexable } from "../storage/hive"
-import type { AgentDoc, ModelDoc } from "../storage/collections"
-import { logger } from "../utils/logger"
-import type { LLMMessage, LLMToolDef, ContentPart } from "./llm-client"
+import { col, fromIndexable } from "../storage/hive.ts"
+import type { AgentDoc, ModelDoc } from "../storage/collections.ts"
+import { logger } from "../utils/logger.ts"
+import type { LLMMessage, LLMToolDef, ContentPart } from "./llm-client.ts"
 import type { MCPClientManager } from "../mcp/index.ts"
-import { syncToolCatalogToIndex, mcpToolFullName } from "./tool-selector"
-import { syncSkillsToIndex, getMinimalSkills, selectSkills, getSkillByName, type SkillDescriptor } from "./skill-selector"
-import { syncPlaybookToIndex, selectPlaybookRules } from "./playbook-selector"
-import { getRecentMessages, getSummary, getScratchpad, toAPIMessages } from "./conversation-store"
-import { formatContext, estimateTokens } from "../utils/toon"
-import { buildSystemPromptWithProjects } from "./prompt-builder"
+import { syncToolCatalogToIndex, mcpToolFullName } from "./tool-selector.ts"
+import { syncSkillsToIndex, getMinimalSkills, selectSkills, getSkillByName, type SkillDescriptor } from "./skill-selector.ts"
+import { syncPlaybookToIndex, selectPlaybookRules } from "./playbook-selector.ts"
+import { getRecentMessages, getSummary, getScratchpad, toAPIMessages } from "./conversation-store.ts"
+import { formatContext, estimateTokens } from "../utils/toon.ts"
+import { buildSystemPromptWithProjects } from "./prompt-builder.ts"
 import { createAllTools } from "../tools/index.ts"
-import { resolveUserId } from "../storage/onboarding"
-import { getMCPManager as getSingletonMCPManager } from "../mcp/singleton"
-import { syncMCPToolsToDB, syncMCPToolsToIndex } from "../mcp/tool-sync"
-import { getUserDate, getUserTime } from "../utils/date"
-import { loadConfig } from "../config/loader"
-import { getHiveDb } from "../storage/hivedb"
-import { listCatalogAgents, renderAgentRoutingCatalog } from "./catalog-selector"
-import { expandToolAllowlist } from "./delegation-runtime"
-import { MINIMAL_TOOLS } from "./minimal-loadout"
+import { resolveUserId } from "../storage/onboarding.ts"
+import { getMCPManager as getSingletonMCPManager } from "../mcp/singleton.ts"
+import { syncMCPToolsToDB, syncMCPToolsToIndex } from "../mcp/tool-sync.ts"
+import { getUserDate, getUserTime } from "../utils/date.ts"
+import { loadConfig } from "../config/loader.ts"
+import { getHiveDb } from "../storage/hivedb.ts"
+import { listCatalogAgents, renderAgentRoutingCatalog } from "./catalog-selector.ts"
+import { expandToolAllowlist } from "./delegation-runtime.ts"
+import { MINIMAL_TOOLS } from "./minimal-loadout.ts"
+import { normalizeMcpResult } from "./mcp-result-normalizer.ts"
 
 const log = logger.child("context-compiler")
 
@@ -238,7 +239,7 @@ export async function compileContext(opts: {
 
   if (effectiveMcpManager) {
     try {
-      const mcpServersCol = await col<import("../storage/collections").McpServerDoc>("mcpServers")
+      const mcpServersCol = await col<import("../storage/collections.ts").McpServerDoc>("mcpServers")
       const assignedMcpIds = new Set<string>([
         ...(agent.mcp_server_ids_json ? JSON.parse(agent.mcp_server_ids_json) : []),
         ...(agent.active_mcp_json ? JSON.parse(agent.active_mcp_json) : []),
@@ -293,10 +294,20 @@ export async function compileContext(opts: {
               name: fullName,
               description: mcpTool.description || `Tool from ${server.name}`,
               parameters: mcpTool.inputSchema || { type: "object", properties: {} },
-              execute: async (params: Record<string, unknown>) => {
+              execute: async (params: Record<string, unknown>, config?: { configurable?: Record<string, unknown> }) => {
                 // Return raw JS value — agent-loop will TOON-encode via formatToolResult.
                 // Never pre-stringify here: formatToolResult(string) double-encodes.
-                return await effectiveMcpManager.callTool(resolvedServerKey, mcpTool.name, params)
+                const raw = await effectiveMcpManager.callTool(resolvedServerKey, mcpTool.name, params)
+                // MCP results can carry base64 image/audio/blob content blocks —
+                // normalize those into artifact_ref pointers so a large binary
+                // result never gets serialized whole into the LLM context (see
+                // mcp-result-normalizer.ts for the incident this prevents).
+                const configurable = config?.configurable ?? {}
+                return await normalizeMcpResult(raw, {
+                  userId: configurable.user_id ? String(configurable.user_id) : undefined,
+                  runId: configurable.run_id ? String(configurable.run_id) : null,
+                  taskId: configurable.task_id ? String(configurable.task_id) : null,
+                })
               },
             })
 
@@ -352,17 +363,30 @@ export async function compileContext(opts: {
   // Only native minimal tools in LLM context
   // MCP tools are discovered dynamically via search_knowledge(type="mcp")
   let filteredNativeTools: ContextTool[] = nativeTools.filter(t => MINIMAL_TOOLS.has(t.name))
-  if (isCatalogAgent) {
-    const allowedNames = new Set<string>(
-      agent.tool_allowlist_json
-        ? expandToolAllowlist(
-          JSON.parse(agent.tool_allowlist_json),
-          nativeTools.map((tool) => tool.name),
-        )
-        : agent.tools_json
-          ? JSON.parse(agent.tools_json)
-          : [],
+
+  // La lista blanca se aplica a `allTools`, no sólo al prompt inicial. Filtrar
+  // únicamente el loadout de arranque no restringe nada: `search_knowledge`
+  // busca contra el índice completo y agent-loop.ts inyecta lo que encuentre
+  // resolviéndolo contra `allTools`, así que un agente restringido llegaba
+  // igual a cualquier tool nativa por descubrimiento dinámico. Sacarla de
+  // `allTools` la vuelve irresoluble: se puede encontrar en el índice, pero no
+  // se puede cargar ni llamar.
+  //
+  // Antes esto dependía de `isCatalogAgent`, y los agentes creados por el
+  // usuario —que son los que un host multi-tenant define— quedaban sin límite.
+  // Ahora depende de que el agente declare una lista: el coordinador, que no
+  // declara ninguna, conserva el descubrimiento abierto.
+  const declaredAllowlist = agent.tool_allowlist_json
+    ? expandToolAllowlist(
+      JSON.parse(agent.tool_allowlist_json),
+      nativeTools.map((tool) => tool.name),
     )
+    : agent.tools_json
+      ? (JSON.parse(agent.tools_json) as string[])
+      : null
+
+  if (declaredAllowlist) {
+    const allowedNames = new Set<string>(declaredAllowlist)
     filteredNativeTools = nativeTools.filter((tool) => allowedNames.has(tool.name))
     allTools = [...filteredNativeTools, ...mcpToolExecutors]
   }
@@ -508,7 +532,7 @@ export async function compileContext(opts: {
   }
 
   // [STEP-10b] Inject current date/time (ENTORNO ACTUAL)
-  const usersCol = await col<import("../storage/collections").UserDoc>("users")
+  const usersCol = await col<import("../storage/collections.ts").UserDoc>("users")
   const userRow = await usersCol.get(userId)
   const userTimezone = userRow?.doc.timezone || "UTC"
   const now = new Date()
@@ -585,7 +609,7 @@ export async function compileContext(opts: {
         .filter((line): line is string => !!line)
 
       if (causalLines.length > 0) {
-        systemPrompt += `\n\n# CAUSAL CONTEXT (decisiones y tool calls de este turno, previos a la compactación — priorizá la conversación actual; usalo solo para no repetir algo que ya funcionó o ya falló)\n${causalLines.join("\n")}\n`
+        systemPrompt += `\n\n# CAUSAL CONTEXT (decisiones y tool calls de este turno, previos a la compactación — prioriza la conversación actual; úsalo solo para no repetir algo que ya funcionó o ya falló)\n${causalLines.join("\n")}\n`
         log.info(`[context-compiler] [STEP-9d] ✅ Injected ${causalLines.length} causal context item(s)`)
       }
     } catch (err) {

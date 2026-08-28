@@ -16,17 +16,28 @@ can reuse it instead of re-implementing crash-safe job execution from scratch.
 
 ## Architecture
 
+`@johpaz/hive-sdk/harness` is a **barrel, not a directory**: until 0.1.5 it
+carried its own copies of the job store, run store and reconcile helpers, in
+parallel with the ones in `storage/` and `agent/`. Two job stores over the same
+HiveDB collections is one thing with two possible states, so the duplicates were
+removed and the subpath now re-exports the single implementation. The paths below
+are where each piece actually lives, relative to `packages/core/src/`.
+
 | Piece | File | Responsibility |
 |---|---|---|
-| `JobDoc` / `HarnessRunDoc` / `ProofPacketDoc` | `collections.ts` | HiveDB document shapes |
-| `db-helpers` | `db-helpers.ts` | `nextId`, `updateDoc`, `findByAny` — primitives HiveDB's `Collection` doesn't provide directly |
-| `job-store` | `job-store.ts` | Durable job persistence: claim/lease/complete/fail/retry, all via OCC |
-| `run-store` | `run-store.ts` | Checkpoint + lease for a single durable run (messages, iteration/token counters, pending tool calls) |
-| `durable-queue` | `durable-queue.ts` | `DurableLaneQueue` — FIFO+priority per lane, global concurrency cap, executor registry |
-| `goal-verifier` | `goal-verifier.ts` | `verifyGoal()` — deterministic check tool or LLM verifier, single goal or a list of acceptance criteria |
-| `run-epoch` | `run-epoch.ts` | Fixed-worker epoch fingerprint (provider/model/app-version/tool-catalog) |
-| `proof-packet` | `proof-packet.ts` | Compressed evidence artifact for a completed run |
-| `reconcile` | `reconcile.ts` | `reconcileOnBoot()` — crash repair + retention cap, call once at startup |
+| `JobDoc` / `AgentRunDoc` / `ProofPacketDoc` | `storage/collections.ts` | HiveDB document shapes |
+| collection helpers | `storage/hive.ts` | `nextId`, `updateDoc`, `findByAny`, `col` — primitives HiveDB's `Collection` doesn't provide directly |
+| `job-store` | `gateway/job-store.ts` | Durable job persistence: claim/lease/complete/fail/retry, all via OCC |
+| `run-store` | `agent/run-store.ts` | Checkpoint + lease for a single durable run (messages, iteration/token counters, pending tool calls) |
+| `durable-queue` | `gateway/durable-queue.ts` | `DurableLaneQueue` — FIFO+priority per lane, global concurrency cap, executor registry |
+| `goal-runner` | `agent/goal-runner.ts` | `runGoal()` / `verifyGoal()` — deterministic check tool or LLM verifier, single goal or a list of acceptance criteria |
+| `run-epoch` | `agent/run-epoch.ts` | Fixed-worker epoch fingerprint (provider/model/app-version/tool-catalog) |
+| `proof-packet` | `agent/proof-packet.ts` | Compressed evidence artifact for a completed run |
+| `boot-id` | `storage/boot-id.ts` | `getBootId()` — identifies this process run, so a crash is distinguishable from a restart |
+| `reconcile` | `storage/reconcile.ts` | `reconcileOnBoot()` — crash repair + retention cap, call once at startup |
+
+`test/harness-barrel.test.ts` pins this contract: the subpath must keep exporting
+the same names, pointing at the single implementation rather than at copies.
 
 ## Durable queue semantics
 

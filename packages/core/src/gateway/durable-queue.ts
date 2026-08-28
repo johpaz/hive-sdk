@@ -14,7 +14,7 @@
  * is preserved, while all queue state is mirrored to the DB.
  */
 
-import { logger } from "../utils/logger";
+import { logger } from "../utils/logger.ts";
 import {
   createJob,
   claimJob,
@@ -30,9 +30,9 @@ import {
   loadJobRetryPolicy,
   DEFAULT_JOB_RETRY_POLICY,
   type JobRetryPolicy,
-} from "./job-store";
-import type { JobDoc } from "../storage/collections";
-import { getBootId } from "../storage/boot-id";
+} from "./job-store.ts";
+import type { JobDoc } from "../storage/collections.ts";
+import { getBootId } from "../storage/boot-id.ts";
 
 const log = logger.child("durable-queue");
 
@@ -287,7 +287,7 @@ export class DurableLaneQueue {
     let leasedHere = true;
     const leaseRenewer = setInterval(async () => {
       if (leasedHere) {
-        const { renewLease } = await import("./job-store");
+        const { renewLease } = await import("./job-store.ts");
         await renewLease(job.id, this.bootId).catch(() => {});
       }
     }, 30_000);

@@ -8,8 +8,8 @@
  *   3. Provide runtime queries: ready nodes, overall progress
  */
 
-import { TaskNode, type TaskNodeConfig } from "./TaskNode"
-import { CyclicDependencyError } from "./errors"
+import { TaskNode, type TaskNodeConfig } from "./TaskNode.ts"
+import { CyclicDependencyError } from "./errors.ts"
 
 export class TaskGraph {
   readonly nodes: Map<string, TaskNode>

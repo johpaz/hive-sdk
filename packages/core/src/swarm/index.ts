@@ -31,3 +31,10 @@ export { createHiveLearnGraph } from "./presets/index.ts";
 export type { HiveLearnAgentIds, HiveLearnInput } from "./presets/index.ts";
 export { createResearchGraph } from "./presets/index.ts";
 export type { ResearchAgentIds } from "./presets/index.ts";
+
+// ─── Enjambre por roles (orquestador/trabajadores) ───────────────────────────
+export { runRoleSwarm, defaultInvoker } from "./RoleSwarm.ts";
+export type {
+  SwarmStrategy, RoleAgent, SwarmMessage, AgentInvoker,
+  RoleSwarmOptions, RoleSwarmResult,
+} from "./RoleSwarm.ts";

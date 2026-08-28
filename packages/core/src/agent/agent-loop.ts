@@ -13,24 +13,25 @@
  * Also used directly by runAgentIsolated() for worker tasks.
  */
 
-import { logger } from "../utils/logger"
-import { col, fromIndexable } from "../storage/hive"
-import { getHiveDb } from "../storage/hivedb"
+import { logger } from "../utils/logger.ts"
+import { col, fromIndexable } from "../storage/hive.ts"
+import { getHiveDb } from "../storage/hivedb.ts"
 import type { HiveDB, EventInput } from "@johpaz/hive-db"
-import type { AgentDoc, TurnSource } from "../storage/collections"
-import { callLLM, resolveProviderConfig, getDefaultLLM, type LLMMessage } from "./llm-client"
-import { addMessage } from "./conversation-store"
-import { saveTrace, recordLLMUsage } from "./tracer"
-import { maybeCompact, clearOldToolResults } from "./compaction"
-import { emitCanvas } from "../canvas/emitter"
+import type { AgentDoc, TurnSource } from "../storage/collections.ts"
+import { callLLM, resolveProviderConfig, getDefaultLLM, type LLMMessage, type ProviderCredentials } from "./llm-client.ts"
+import { addMessage } from "./conversation-store.ts"
+import { saveTrace, recordLLMUsage } from "./tracer.ts"
+import { maybeCompact, clearOldToolResults } from "./compaction.ts"
+import { emitCanvas } from "../canvas/emitter.ts"
 import type { MCPClientManager } from "../mcp/index.ts"
-import { compileContext } from "./context-compiler"
-import { formatToolResult } from "../utils/toon"
-import { resolveUserId, resolveAgentId } from "../storage/onboarding"
-import type { ContentPart } from "../multimodal/types"
-import { loadConfig } from "../config/loader"
-import { executeToolBatch } from "../tool-runtime"
-import { createStuckLoopDetector, getInterventionMessage, type StuckLoopState } from "./stuck-loop"
+import { compileContext } from "./context-compiler.ts"
+import { formatToolResult } from "../utils/toon.ts"
+import { redactBinaryStrings } from "../utils/redact-binary.ts"
+import { resolveUserId, resolveAgentId } from "../storage/onboarding.ts"
+import type { ContentPart } from "../multimodal/types.ts"
+import { loadConfig } from "../config/loader.ts"
+import { executeToolBatch } from "../tool-runtime/index.ts"
+import { createStuckLoopDetector, getInterventionMessage, type StuckLoopState } from "./stuck-loop.ts"
 import {
   createRun as createAgentRun,
   checkpoint as checkpointRun,
@@ -44,9 +45,9 @@ import {
   startLeaseRenewal,
   stopLeaseRenewal,
   type RunCheckpointState,
-} from "./run-store"
-import { publishNarration } from "../events/narration"
-import { getNarration } from "../events/tool-narration"
+} from "./run-store.ts"
+import { publishNarration } from "../events/narration.ts"
+import { getNarration } from "../events/tool-narration.ts"
 
 const log = logger.child("agent-loop")
 
@@ -92,6 +93,50 @@ export async function synthesizeFinalResponse(
     `No se pudo generar la respuesta final del agente después de 2 intentos: ${detail}`,
     { cause: lastError },
   )
+}
+
+type LoadoutContext = {
+  tools: Array<{ type: string; function?: { name?: string } }>
+  allTools: Array<{ name: string }>
+}
+
+/**
+ * Adds artifact_read to the loadout the moment a tool result hands the model an
+ * `artifact_ref` it will need to open.
+ *
+ * mcp-result-normalizer.ts moves oversized MCP text results out of the context
+ * window and leaves a reference behind. Discovery (search_knowledge) can find
+ * the reader, but that costs an iteration and assumes the model thinks to look:
+ * in the incident this comes from, it reached for artifact_inspect instead, got
+ * metadata, and burned the rest of its budget on `find` and `env` before the
+ * turn died on an empty synthesis. Image refs are excluded — those are carried
+ * to the UI, not read back by the model.
+ *
+ * Returns true when the loadout changed.
+ */
+export function injectArtifactReadIfNeeded(toolResult: unknown, ctx: LoadoutContext): boolean {
+  if (!Array.isArray(toolResult)) return false
+
+  const needsReader = toolResult.some((block) =>
+    !!block && typeof block === "object" &&
+    (block as { type?: unknown }).type === "artifact_ref" &&
+    !String((block as { mime_type?: unknown }).mime_type ?? "").startsWith("image/")
+  )
+  if (!needsReader) return false
+  if (ctx.tools.some((t) => t.function?.name === "artifact_read")) return false
+
+  const reader = ctx.allTools.find((t) => t.name === "artifact_read")
+  if (!reader) return false
+
+  ctx.tools.push({
+    type: "function",
+    function: {
+      name: reader.name,
+      description: (reader as any).description ?? "",
+      parameters: (reader as any).parameters ?? { type: "object", properties: {} },
+    },
+  } as LoadoutContext["tools"][number])
+  return true
 }
 
 /** Bounds a single async operation to its own timeout window, independent of any caller. */
@@ -171,6 +216,14 @@ export interface AgentLoopOptions {
   taskId?: string
   /** External routing/session id for progress delivery. */
   sessionId?: string
+  /**
+   * Credenciales del proveedor para ESTA llamada, en vez de las del proceso.
+   *
+   * Un host multi-tenant resuelve la key de su inquilino y la pasa acá. Sin esto
+   * la única fuente era el secret store de HiveDB o `process.env`, ambos globales:
+   * dos inquilinos concurrentes en el mismo proceso compartían credencial.
+   */
+  credentials?: ProviderCredentials
   /** Whether to resume from a previously saved checkpoint */
   resume?: boolean
   /** Run budget — overrides agent.max_iterations when set */
@@ -215,6 +268,8 @@ export interface StreamChunk {
   agent?: { messages: any[]; streamed?: boolean }
   tools?: { messages: any[] }
   usage?: { input_tokens: number; output_tokens: number }
+  /** Image artifacts (mcp-result-normalizer.ts) produced by tools this turn. */
+  artifacts?: { images: Array<{ artifactId: string; mimeType: string }> }
 }
 
 // ─── Main agent loop ──────────────────────────────────────────────────────────
@@ -280,7 +335,7 @@ export async function* runAgent(
     agentProvider = agentProvider || defaultLLM.provider
     agentModel = agentModel || defaultLLM.model
   }
-  const providerCfg = await resolveProviderConfig(agentProvider, agentModel)
+  const providerCfg = await resolveProviderConfig(agentProvider, agentModel, opts.credentials)
 
   const cleanModel = providerCfg.model.replace(new RegExp(`^${providerCfg.provider}\\/`), "")
   log.info(`[agent-loop] Starting: agent=${agentName} thread=${opts.threadId} provider=${providerCfg.provider}/${cleanModel}`)
@@ -360,6 +415,10 @@ export async function* runAgent(
   let iterations = 0
   let totalInputTokens = 0
   let totalOutputTokens = 0
+  // Image artifacts produced by tool results this turn (post mcp-result-normalizer.ts) —
+  // surfaced in the final chunk so callers (webchat-turn.ts) can attach them to the
+  // outbound message instead of the model having to describe them in text.
+  const turnImageArtifacts: Array<{ artifactId: string; mimeType: string }> = []
   let lastToolSignature = ""
   let consecutiveRepeat = 0
   let idleIterations = 0
@@ -452,7 +511,7 @@ export async function* runAgent(
     iterations++
 
     const delegationGroupAtCall = opts.turnId && !opts.isolated
-      ? await import("../gateway/delegation-groups").then((mod) => mod.getDelegationGroup(opts.turnId!))
+      ? await import("../gateway/delegation-groups.ts").then((mod) => mod.getDelegationGroup(opts.turnId!))
       : null
     let streamedThisCall = false
     let response: Awaited<ReturnType<typeof callLLM>>
@@ -648,6 +707,27 @@ export async function* runAgent(
       const toolResultJS = batchResult.result
       const toolMs = batchResult.durationMs
 
+      // Surface image artifacts (see mcp-result-normalizer.ts) so the final
+      // response can carry them to the UI/channel — before TOON-encoding,
+      // while toolResultJS is still structured.
+      if (Array.isArray(toolResultJS)) {
+        for (const block of toolResultJS) {
+          if (
+            block && typeof block === "object" &&
+            (block as { type?: unknown }).type === "artifact_ref" &&
+            typeof (block as { mime_type?: unknown }).mime_type === "string" &&
+            (block as { mime_type: string }).mime_type.startsWith("image/")
+          ) {
+            const ref = block as { artifact_id: string; mime_type: string }
+            turnImageArtifacts.push({ artifactId: ref.artifact_id, mimeType: ref.mime_type })
+          }
+        }
+      }
+
+      if (injectArtifactReadIfNeeded(toolResultJS, ctx)) {
+        log.info("[agent-loop] Tool result carries an artifact_ref — injected artifact_read into loadout")
+      }
+
       // Encode TOON only for LLM consumption (with cost calculation)
       const toolResultLLM = formatToolResult(toolResultJS, cleanModel)
 
@@ -812,7 +892,7 @@ export async function* runAgent(
           // Inject skills associated with the injected tools
           if (injectedTools.length > 0) {
             try {
-              const skillsCol = await col<import("../storage/collections").SkillDoc>("skills")
+              const skillsCol = await col<import("../storage/collections.ts").SkillDoc>("skills")
               // Find skills that use any of the injected tools
               const activeSkills = (await skillsCol.scan({})).filter(e => e.doc.active)
               const skillsWithTools = activeSkills
@@ -1032,7 +1112,7 @@ export async function* runAgent(
   // Make one extra call without tools so it summarizes what it did.
   if (!finalContent) {
     const pendingDelegation = opts.turnId && !opts.isolated
-      ? await import("../gateway/delegation-groups").then((mod) => mod.getDelegationGroup(opts.turnId!))
+      ? await import("../gateway/delegation-groups.ts").then((mod) => mod.getDelegationGroup(opts.turnId!))
       : null
     if (pendingDelegation) {
       log.info(`[agent-loop] Suppressing terminal synthesis while delegation group ${opts.turnId} is pending`)
@@ -1083,6 +1163,10 @@ export async function* runAgent(
   // Emit final usage so consumers (e.g. AgentRunner) can surface real token counts
   if (totalInputTokens > 0 || totalOutputTokens > 0) {
     yield { usage: { input_tokens: totalInputTokens, output_tokens: totalOutputTokens } }
+  }
+
+  if (turnImageArtifacts.length > 0) {
+    yield { artifacts: { images: turnImageArtifacts } }
   }
 
   // ── Post-loop ────────────────────────────────────────────────────────────
@@ -1203,6 +1287,12 @@ export interface IsolatedAgentOptions {
   userId?: string
   channel?: string
   sessionId?: string
+  /**
+   * Se hereda del turno que delegó. Sin propagarla, un worker delegado volvía a
+   * caer en la credencial global del proceso y la fuga entre inquilinos se
+   * reabría justo en el camino de delegación.
+   */
+  credentials?: ProviderCredentials
 }
 
 export async function runAgentIsolatedDetailed(
@@ -1226,15 +1316,14 @@ export async function runAgentIsolatedDetailed(
     userId: opts.userId,
     channel: opts.channel,
     sessionId: opts.sessionId,
+    credentials: opts.credentials,
   })) {
     if (chunk.agent?.messages?.[0]?.content) {
       lastContent = chunk.agent.messages[0].content
     }
     for (const message of chunk.tools?.messages ?? []) {
       const raw = typeof message.content === "string" ? message.content : JSON.stringify(message.content)
-      const safe = raw
-        .replace(/data:[a-z0-9.+-]+\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+/gi, "[REDACTED_BINARY]")
-        .replace(/[A-Za-z0-9+/]{1000,}={0,2}/g, "[REDACTED_BINARY]")
+      const safe = redactBinaryStrings(raw)
       toolEvidence.push(`${message.name ?? "tool"}: ${safe.slice(0, 4000)}`)
       if (toolEvidence.length > 8) toolEvidence.shift()
     }

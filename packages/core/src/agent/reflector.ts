@@ -11,12 +11,12 @@
  * trick the SQLite version used — HiveDB has no equivalent primitive.
  */
 
-import { logger } from "../utils/logger"
-import { col, nextId } from "../storage/hive"
-import { getHiveDb } from "../storage/hivedb"
-import { loadConfig } from "../config/loader"
+import { logger } from "../utils/logger.ts"
+import { col, nextId } from "../storage/hive.ts"
+import { getHiveDb } from "../storage/hivedb.ts"
+import { loadConfig } from "../config/loader.ts"
 import type { HiveDB, ToolStats } from "@johpaz/hive-db"
-import type { TraceDoc, ReflectionDoc, CursorDoc } from "../storage/collections"
+import type { TraceDoc, ReflectionDoc, CursorDoc } from "../storage/collections.ts"
 
 const log = logger.child("reflector")
 
@@ -88,7 +88,7 @@ export async function runReflector(): Promise<void> {
     await cursorsCol.put(CURSOR_ID, { value: newCursor }, cursorEntry ? { expectedVersion: cursorEntry.version } : { expectedVersion: 0 })
 
     // Trigger curator
-    const { runCurator } = await import("./curator")
+    const { runCurator } = await import("./curator.ts")
     await runCurator()
 
     log.info(`[reflector] Reflection cycle completed successfully`)

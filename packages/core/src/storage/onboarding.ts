@@ -1,19 +1,19 @@
 import { logger } from "../utils/logger.ts";
-import { ensureHiveDb } from "./bootstrap";
-import { col, toIndexable, fromIndexable } from "./hive";
+import { ensureHiveDb } from "./bootstrap.ts";
+import { col, toIndexable, fromIndexable } from "./hive.ts";
 import {
   storeProviderApiKey,
   storeChannelConfig,
   storeMcpEnv,
   loadProviderApiKey,
   loadChannelConfig,
-} from "./crypto";
+} from "./crypto.ts";
 import { SkillLoader } from "../skills/index.ts";
 import type {
   UserDoc, ProviderDoc, ModelDoc, AgentDoc, ChannelDoc, McpServerDoc,
   UserIdentityDoc, OnboardingProgressDoc, EthicsDoc, SkillDoc, ToolDoc,
-} from "./collections";
-import { normalizeUserEmail } from "./user-email";
+} from "./collections.ts";
+import { normalizeUserEmail } from "./user-email.ts";
 
 export interface OnboardingSection {
   step: "user" | "skills" | "ethics" | "tools" | "provider" | "model" | "channel" | "mcp" | "agent" | "complete";
@@ -423,7 +423,7 @@ export async function propagateCoordinatorModel(
   providerId: string,
   modelId: string,
 ): Promise<number> {
-  const { applyCoordinatorModel } = await import("../agent/agent-catalog");
+  const { applyCoordinatorModel } = await import("../agent/agent-catalog.ts");
   const updated = await applyCoordinatorModel({ userId, providerId, modelId, overwrite: true });
   if (updated > 0) {
     log.info(`✅ ${updated} agente(s) sincronizados con el modelo del coordinador`, { providerId, modelId });

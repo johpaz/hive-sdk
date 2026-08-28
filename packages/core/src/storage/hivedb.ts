@@ -15,7 +15,7 @@
 import path from "node:path";
 import { HiveDB } from "@johpaz/hive-db";
 import { getHiveDir } from "../config/loader.ts";
-import { logger } from "../utils/logger";
+import { logger } from "../utils/logger.ts";
 
 const log = logger.child("hivedb");
 
@@ -46,6 +46,15 @@ export async function getHiveDb(): Promise<HiveDB> {
     });
   }
   return opening;
+}
+
+/**
+ * Return the currently open database without opening one.
+ * Used by lifecycle-aware consumers that need to invalidate state after a
+ * close/reopen cycle.
+ */
+export function getOpenHiveDb(): HiveDB | null {
+  return db;
 }
 
 export function closeHiveDb(): void {

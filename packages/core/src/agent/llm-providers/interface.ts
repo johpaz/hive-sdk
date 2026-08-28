@@ -2,10 +2,10 @@
  * Shared types and utilities for LLM providers.
  */
 
-import type { LLMCallOptions, LLMMessage, LLMResponse, LLMToolCall, ContentPart, ThinkingBlock } from "../llm-client"
+import type { LLMCallOptions, LLMMessage, LLMResponse, LLMToolCall, ContentPart, ThinkingBlock } from "../llm-client.ts"
 export type { LLMCallOptions, LLMMessage, LLMResponse, LLMToolCall, ContentPart, ThinkingBlock }
 
-import { logger } from "../../utils/logger"
+import { logger } from "../../utils/logger.ts"
 const log = logger.child("llm-client")
 
 // ─── Provider interface ────────────────────────────────────────────────────────

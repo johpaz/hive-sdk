@@ -4,13 +4,89 @@
 
 ### Seguridad
 
+- **La lista blanca de tools no se aplicaba al descubrimiento dinámico.**
+  `compileContext` sólo recortaba `allTools` cuando el agente era de catálogo
+  (`source === "catalog"`). Un agente creado por el usuario veía su loadout
+  inicial restringido, pero `search_knowledge` busca contra el índice completo y
+  el agent loop inyecta lo que encuentre resolviéndolo contra `allTools`: la
+  tool excluida terminaba siendo llamable igual. Ahora la restricción depende de
+  que el agente declare una lista, no de su origen. Cubierto por
+  `test/tool-allowlist-discovery.test.ts`.
+
+- **Aislamiento de credenciales entre inquilinos.** `AgentLoopOptions` no tenía
+  forma de recibir la key del proveedor, así que la única fuente era el secret
+  store de HiveDB o `process.env[PROVIDER_API_KEY]`, ambos globales al proceso.
+  Un host multi-tenant que corriera dos workspaces en el mismo proceso les daba
+  la misma credencial. Se agregó `credentials` en `AgentLoopOptions`,
+  `IsolatedAgentOptions` y `resolveProviderConfig`; la credencial de la llamada
+  gana y corta ahí, sin consultar las fuentes globales ni mutar `process.env`.
+  Retrocompatible: sin `credentials` el comportamiento es el de siempre.
+  Cubierto por `test/tenant-isolation.test.ts`.
+
+
 - **`sanitizeDiagnostic` dejaba el token en claro detrás del esquema de auth.**
   La regex consumía sólo la palabra `Bearer`, así que un diagnóstico con
   `authorization: Bearer <token>` quedaba como `authorization: [REDACTED] <token>`
   y la credencial viajaba al prompt del coordinador. Afecta a **0.1.5 y
   anteriores**: el archivo viaja en el tarball publicado.
 
+### Añadido
+
+- **`@johpaz/hive-sdk/sessions`** — la conversación de un usuario como una sola
+  cosa. Hasta acá "sesión" estaba repartida entre `thread-store` (identidad),
+  `conversation-store` (mensajes), `run-store` (ejecución) y un `Map` en memoria
+  que moría con el proceso; no existía la consulta "qué sesiones tiene este
+  usuario". `Session` es una vista compuesta sobre las colecciones que ya
+  existían — no agrega una tercera persistencia — y `Session.id` ES el
+  `threadId`. Incluye `createSession`, `listSessions`, `appendMessage`,
+  `resumeSession`, `closeSession`/`reopenSession` y `deleteSession`.
+
+- **`@johpaz/hive-sdk/models`** — el seed de modelos con nombre propio. El
+  catálogo (18 proveedores, 110 modelos), las claves de modelo y el cálculo de
+  costo seguían viviendo bajo `storage/`; esto les da un punto de entrada sin
+  mover la implementación.
+
+- **Enjambre por roles** (`runRoleSwarm` en `@johpaz/hive-sdk/swarm`) —
+  orquestador/trabajadores con estrategias `sequential`, `parallel` y
+  `hierarchical`. Es la tercera forma de armar un enjambre, junto a la
+  delegación por catálogo y al DAG de tareas, y la única que expresa un enjambre
+  como *configuración persistida* en vez de un grafo conocido de antemano. No
+  persiste nada: `onMessage` es el punto de enganche del consumidor.
+
+- **`bun run drift`** (`scripts/check-drift.ts`) — compara los módulos del
+  cerebro contra `hive` y reporta qué falta y qué difiere, indicando de qué lado
+  está el avance. El SDK es la fuente de verdad pero nada lo garantizaba
+  estructuralmente: la última vez la divergencia llegó a compartir sólo 87 de
+  224 nombres de archivo.
+
+- **`test/exports-contract.test.ts`** — importa de verdad cada subpath declarado
+  en `exports`. Los deep-imports se han roto entre versiones sin aviso, y el
+  consumidor se defendía pineando la versión exacta.
+
 ### Corregido
+
+- **`touchThread` perdía mensajes en el contador.** El incremento se calculaba
+  fuera del reintento de `updateDoc`, así que ante un conflicto de versión el
+  reintento volvía a escribir el valor viejo. Como `addMessage` la llama sin
+  esperarla, dos mensajes seguidos del mismo hilo bastaban para que el conteo se
+  quedara corto de forma permanente. Ahora el valor se recalcula dentro del
+  bucle.
+
+- **El paquete publicaba su propia suite de tests.** Sin campo `files`, el
+  tarball llevaba 329 archivos y 2.3 MB, incluidos `test/`, `docs/`, `scripts/`
+  y los `*.test.ts` que conviven con el código. Ahora son 260 archivos y 448 kB.
+
+- **`prepublish` no verificaba nada** (era un `echo`), y además es el hook
+  deprecado. Se reemplazó por `prepublishOnly` con typecheck + tests.
+
+- **Sintaxis TypeScript que ningún runtime salvo Bun puede procesar.** Las 5
+  *parameter properties* (`constructor(private x)`) rompían incluso el
+  type-stripping nativo de Node, y como las clases se re-exportan desde el barrel
+  raíz tumbaban cualquier import del paquete. Se reescribieron a mano, sin
+  cambiar la API, y se normalizaron 355 imports relativos a extensión `.ts`
+  explícita. El paquete sigue requiriendo Bun por el uso de `Bun.*` en 18
+  archivos del core — ahora documentado en el README.
+
 
 - Se fijaron las 8 dependencias que estaban en `latest` (`zod`, `discord.js`,
   `grammy`, `@slack/bolt`, `@whiskeysockets/baileys`, `@modelcontextprotocol/sdk`,

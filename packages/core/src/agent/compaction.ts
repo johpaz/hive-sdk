@@ -15,7 +15,7 @@
  * short summaries in the in-memory message array before model calls.
  */
 
-import { logger } from "../utils/logger"
+import { logger } from "../utils/logger.ts"
 import {
   getTotalTokens,
   getHistory,
@@ -24,11 +24,11 @@ import {
   getMessageCount,
   isInternalSource,
   type StoredMessage,
-} from "./conversation-store"
-import { estimateTokens } from "../utils/toon"
-import { callLLM, resolveProviderConfig, getDefaultLLM, type ContentPart } from "./llm-client"
-import { col, fromIndexable } from "../storage/hive"
-import type { AgentDoc, ModelDoc } from "../storage/collections"
+} from "./conversation-store.ts"
+import { estimateTokens } from "../utils/toon.ts"
+import { callLLM, resolveProviderConfig, getDefaultLLM, type ContentPart } from "./llm-client.ts"
+import { col, fromIndexable } from "../storage/hive.ts"
+import type { AgentDoc, ModelDoc } from "../storage/collections.ts"
 
 const log = logger.child("compaction")
 
@@ -118,7 +118,7 @@ export function renderTranscript(rows: StoredMessage[], maxMsgChars = MAX_MSG_CH
 /**
  * Compress a thread's history into a summary.
  */
-async function compactThread(
+export async function compactThread(
   threadId: string,
   notify?: { channel: string; userId: string }
 ): Promise<void> {
@@ -187,11 +187,12 @@ async function compactThread(
   // Notify user in their active channel (non-critical)
   if (notify?.channel && notify?.userId) {
     try {
-      const { sendToUserChannel } = await import("../gateway/channel-notify")
+      const { sendToUserChannel } = await import("../gateway/channel-notify.ts")
       await sendToUserChannel(
         notify.channel,
         notify.userId,
-        `🗜️ Resumí ${toSummarize.length} mensajes anteriores para mantener el contexto limpio.`
+        `🗜️ Resumí ${toSummarize.length} mensajes anteriores para mantener el contexto limpio.`,
+        { threadId }
       )
     } catch {
       // Non-critical — don't break the flow if notification fails

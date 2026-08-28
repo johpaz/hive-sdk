@@ -8,3 +8,4 @@ export { Benchmark } from "./benchmark.ts";
 export { getUserDate, getUserTime } from "./date.ts";
 export type { ToonStringifyResult } from "./toon.ts";
 export { estimateTokens, stringify, formatToolResult, formatMCPResponse, formatSkillOutput, formatContext, withToonFormat, reportCompression, getCompressionAnalysis } from "./toon.ts";
+export { redactBinaryStrings } from "./redact-binary.ts";

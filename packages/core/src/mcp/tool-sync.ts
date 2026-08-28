@@ -13,15 +13,15 @@
  * 3. Offline visibility of what MCP tools were available
  */
 
-import { col } from "../storage/hive"
-import type { McpToolDoc } from "../storage/collections"
-import { logger } from "../utils/logger"
-import { mcpToolFullName } from "../agent/tool-selector"
+import { col } from "../storage/hive.ts"
+import type { McpToolDoc } from "../storage/collections.ts"
+import { logger } from "../utils/logger.ts"
+import { mcpToolFullName } from "../agent/tool-selector.ts"
 import {
     replaceCapabilityDocs,
     deleteCapabilitiesByServer,
     type CapabilityDoc,
-} from "../agent/capability-search"
+} from "../agent/capability-search.ts"
 
 const log = logger.child("mcp:tool-sync")
 

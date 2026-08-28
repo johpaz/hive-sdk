@@ -35,6 +35,8 @@
     "./tools": "./packages/core/src/tools/index.ts",
     "./skills": "./packages/core/src/skills/index.ts",
     "./storage": "./packages/core/src/storage/index.ts",
+    "./sessions": "./packages/core/src/sessions/index.ts",
+    "./models": "./packages/core/src/models/index.ts",
     "./swarm": "./packages/core/src/swarm/index.ts",
     "./swarm/strategies": "./packages/core/src/swarm/strategies/index.ts",
     "./swarm/presets": "./packages/core/src/swarm/presets/index.ts",
@@ -59,6 +61,16 @@
   "bin": {
     "hives": "./packages/cli/bin/hives"
   },
+  "files": [
+    "packages/core/src",
+    "packages/cli/bin",
+    "packages/cli/src",
+    "packages/cli/templates",
+    "!packages/**/*.test.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "workspaces": [
     "packages/core",
     "packages/cli"
@@ -70,7 +82,8 @@
     "skills:bundle": "bun scripts/generate-skill-bundle.ts",
     "version:set": "bun scripts/bump-version.ts",
     "release": "bun scripts/bump-version.ts --push",
-    "prepublish": "echo 'No build needed - Bun runs TypeScript directly'"
+    "prepublishOnly": "bun run typecheck && bun test",
+    "drift": "bun scripts/check-drift.ts"
   },
   "dependencies": {
     "@johpaz/hive-db": "^0.4.0",

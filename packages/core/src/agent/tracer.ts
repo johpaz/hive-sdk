@@ -6,9 +6,9 @@
  * `agents.lastTraceAt` field used by the Curator's stale-worker detection.
  */
 
-import { logger } from "../utils/logger"
-import { col, nextId, updateDoc } from "../storage/hive"
-import type { TraceDoc, AgentDoc } from "../storage/collections"
+import { logger } from "../utils/logger.ts"
+import { col, nextId, updateDoc } from "../storage/hive.ts"
+import type { TraceDoc, AgentDoc } from "../storage/collections.ts"
 
 const log = logger.child("tracer")
 
@@ -82,7 +82,7 @@ async function checkReflectorTrigger(): Promise<void> {
   _tracesSinceLastReflection = 0
 
   // Lazy import to avoid circular deps
-  const { runReflector } = await import("./reflector")
+  const { runReflector } = await import("./reflector.ts")
   runReflector().catch((err) => {
     log.warn("[tracer] Reflector run failed:", err)
   })
@@ -98,7 +98,7 @@ export function recordLLMUsage(opts: {
 }): void {
   Promise.resolve().then(async () => {
     try {
-      const { recordUsage } = await import("../storage/usage")
+      const { recordUsage } = await import("../storage/usage.ts")
       recordUsage({
         provider: opts.provider,
         model: opts.model,

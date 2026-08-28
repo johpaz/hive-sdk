@@ -30,7 +30,10 @@ export class PluginLoader {
   private commands: Map<string, CLICommand> = new Map();
   private log = logger.child("plugins");
 
-  constructor(private options: PluginLoaderOptions) {
+  private options: PluginLoaderOptions;
+
+  constructor(options: PluginLoaderOptions) {
+    this.options = options;
     if (!existsSync(options.pluginDir)) {
       mkdirSync(options.pluginDir, { recursive: true });
     }

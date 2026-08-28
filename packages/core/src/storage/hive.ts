@@ -7,7 +7,7 @@
  * SUM/AVG/GROUP BY (`bumpRollup`).
  */
 
-import { getHiveDb } from "./hivedb";
+import { getHiveDb } from "./hivedb.ts";
 
 const MAX_RETRIES = 5;
 

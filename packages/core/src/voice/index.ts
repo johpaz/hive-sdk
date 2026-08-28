@@ -1,7 +1,7 @@
-import { col } from "../storage/hive";
-import type { ChannelDoc, ModelDoc } from "../storage/collections";
-import { loadProviderApiKey } from "../storage/crypto";
-import { logger } from "../utils/logger";
+import { col } from "../storage/hive.ts";
+import type { ChannelDoc, ModelDoc } from "../storage/collections.ts";
+import { loadProviderApiKey } from "../storage/crypto.ts";
+import { logger } from "../utils/logger.ts";
 
 export interface VoiceConfig {
   voiceEnabled: boolean;
@@ -109,7 +109,7 @@ class VoiceService {
       const modelsCol = await col<ModelDoc>("models");
       const model = await modelsCol.get(modelId);
       if (model?.doc.provider_id) return model.doc.provider_id;
-      const providersCol = await col<import("../storage/collections").ProviderDoc>("providers");
+      const providersCol = await col<import("../storage/collections.ts").ProviderDoc>("providers");
       const provider = await providersCol.get(modelId);
       return provider?.doc.id || null;
     } catch {
@@ -121,7 +121,7 @@ class VoiceService {
   private async getFirstActiveVoiceModel(type: "stt" | "tts"): Promise<{ id: string; provider: string } | null> {
     try {
       const modelsCol = await col<ModelDoc>("models");
-      const providersCol = await col<import("../storage/collections").ProviderDoc>("providers");
+      const providersCol = await col<import("../storage/collections.ts").ProviderDoc>("providers");
       const models = (await modelsCol.findBy("model_type", type)).filter(e => e.doc.active);
       for (const m of models) {
         const provider = await providersCol.get(m.doc.provider_id);

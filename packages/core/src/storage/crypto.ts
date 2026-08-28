@@ -2,8 +2,8 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import * as path from "node:path"
 import { getHiveDir } from "../config/loader.ts"
-import { logger } from "../utils/logger"
-import { col } from "./hive"
+import { logger } from "../utils/logger.ts"
+import { col } from "./hive.ts"
 
 const log = logger.child("crypto")
 const SERVICE = "hive"

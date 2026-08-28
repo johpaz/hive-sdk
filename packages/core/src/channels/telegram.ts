@@ -3,7 +3,7 @@ import { BaseChannel, type ChannelConfig, type IncomingMessage, type OutboundMes
 import { logger } from "../utils/logger.ts";
 import { col, updateDoc } from "../storage/hive.ts";
 import type { ChannelDoc, UserIdentityDoc } from "../storage/collections.ts";
-import { resolveUserId } from "../storage/onboarding";
+import { resolveUserId } from "../storage/onboarding.ts";
 
 export interface TelegramConfig extends ChannelConfig {
   botToken: string;

@@ -18,8 +18,8 @@
  *   await scheduler.execute(graph, { projectId, coordinatorId })
  */
 
-import { TaskGraph } from "../TaskGraph"
-import type { TaskNodeConfig } from "../TaskNode"
+import { TaskGraph } from "../TaskGraph.ts"
+import type { TaskNodeConfig } from "../TaskNode.ts"
 
 export interface ResearchAgentIds {
   research: string

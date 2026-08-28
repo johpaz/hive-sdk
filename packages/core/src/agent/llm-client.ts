@@ -11,26 +11,26 @@
  * Public interface (LLMMessage, callLLM, resolveProviderConfig) is stable.
  */
 
-import { logger } from "../utils/logger"
-import { loadConfig } from "../config/loader"
-import { withRetry, isRetryableError, type RetryPolicy } from "../resilience/retry"
-import { GeminiProvider } from "./llm-providers/gemini"
-import { AnthropicProvider } from "./llm-providers/anthropic"
-import { OllamaProvider } from "./llm-providers/ollama"
-import { OpenAIProvider } from "./llm-providers/openai"
-import { GroqProvider } from "./llm-providers/groq"
-import { MistralProvider } from "./llm-providers/mistral"
-import { OpenRouterProvider } from "./llm-providers/openrouter"
-import { DeepSeekProvider } from "./llm-providers/deepseek"
-import { KimiProvider } from "./llm-providers/kimi"
-import { NvidiaProvider } from "./llm-providers/nvidia"
-import { QwenProvider } from "./llm-providers/qwen"
-import { MiniMaxProvider } from "./llm-providers/minimax"
-import { OpenCodeGoProvider } from "./llm-providers/opencode-go"
-import { HiveAgentsProvider } from "./llm-providers/hiveagents"
-import { ZaiProvider } from "./llm-providers/z-ai"
-import { ModelScopeProvider } from "./llm-providers/modelscope"
-import type { LLMProvider } from "./llm-providers/interface"
+import { logger } from "../utils/logger.ts"
+import { loadConfig } from "../config/loader.ts"
+import { withRetry, isRetryableError, type RetryPolicy } from "../resilience/retry.ts"
+import { GeminiProvider } from "./llm-providers/gemini.ts"
+import { AnthropicProvider } from "./llm-providers/anthropic.ts"
+import { OllamaProvider } from "./llm-providers/ollama.ts"
+import { OpenAIProvider } from "./llm-providers/openai.ts"
+import { GroqProvider } from "./llm-providers/groq.ts"
+import { MistralProvider } from "./llm-providers/mistral.ts"
+import { OpenRouterProvider } from "./llm-providers/openrouter.ts"
+import { DeepSeekProvider } from "./llm-providers/deepseek.ts"
+import { KimiProvider } from "./llm-providers/kimi.ts"
+import { NvidiaProvider } from "./llm-providers/nvidia.ts"
+import { QwenProvider } from "./llm-providers/qwen.ts"
+import { MiniMaxProvider } from "./llm-providers/minimax.ts"
+import { OpenCodeGoProvider } from "./llm-providers/opencode-go.ts"
+import { HiveAgentsProvider } from "./llm-providers/hiveagents.ts"
+import { ZaiProvider } from "./llm-providers/z-ai.ts"
+import { ModelScopeProvider } from "./llm-providers/modelscope.ts"
+import type { LLMProvider } from "./llm-providers/interface.ts"
 
 const log = logger.child("llm-client")
 
@@ -182,18 +182,53 @@ export async function callLLM(options: LLMCallOptions): Promise<LLMResponse> {
     const cleanModel = options.model.replace(new RegExp(`^${options.provider}\\/`), "")
     const status = extractErrorStatus(err)
     const modelUnavailable = status === 404 || status === 410
-    const msg = modelUnavailable
-      ? `El modelo "${cleanModel}" ya no existe en ${options.provider} (HTTP ${status}). `
-        + `El proveedor lo retiró de su catálogo; reintentar no sirve. `
-        + `Elegí otro modelo en Ajustes → Proveedores.`
-      : (err as Error).message
+    const msg = describeProviderFailure(err, status, options.provider, cleanModel)
     log.error(`[llm-client] Error calling ${options.provider}/${cleanModel}: ${msg}`, err)
     return {
-      content: `[LLM Error] ${msg}`,
+      content: `${LLM_ERROR_PREFIX} ${msg}`,
       stop_reason: "error",
       error: { message: msg, status, modelUnavailable },
     }
   }
+}
+
+/**
+ * Marks content that is a provider failure rather than something the agent
+ * said. webchat-turn.ts keys the failed-turn UI off this prefix, and
+ * agent-loop.ts keeps such content out of the conversation history.
+ */
+export const LLM_ERROR_PREFIX = "[LLM Error]"
+
+/**
+ * Turns a provider failure into something the user can act on.
+ *
+ * The raw SDK text is written for whoever is reading a stack trace: "429 status
+ * code (no body)" showed up verbatim in the chat and says nothing about what
+ * happened (the account hit its rate limit) or what to do about it. Statuses
+ * without a specific mapping keep the original message — a wrong explanation is
+ * worse than a technical one.
+ */
+export function describeProviderFailure(
+  err: unknown,
+  status: number | undefined,
+  provider: string,
+  cleanModel: string,
+): string {
+  if (status === 404 || status === 410) {
+    return `El modelo "${cleanModel}" ya no existe en ${provider} (HTTP ${status}). `
+      + `El proveedor lo retiró de su catálogo; reintentar no sirve. `
+      + `Elige otro modelo en Ajustes → Proveedores.`
+  }
+  if (status === 429) {
+    return `${provider} está limitando las peticiones (HTTP 429) y los reintentos tampoco pasaron. `
+      + `Es el límite de uso de tu cuenta, no un problema del modelo: esperá unos minutos, `
+      + `revisa tu cuota con el proveedor, o cambiá de modelo en Ajustes → Proveedores.`
+  }
+  if (status === 401 || status === 403) {
+    return `${provider} rechazó la API key (HTTP ${status}). `
+      + `Revisa que siga siendo válida y tenga acceso a "${cleanModel}" en Ajustes → Proveedores.`
+  }
+  return (err as Error).message
 }
 
 /** Provider SDKs disagree on where the HTTP status lands; check every shape we've seen. */
@@ -208,10 +243,10 @@ function extractErrorStatus(err: unknown): number | undefined {
  * Returns null when the DB has no usable LLM (e.g. fresh install before setup).
  */
 export async function getDefaultLLM(): Promise<{ provider: string; model: string } | null> {
-  const { col, fromIndexable } = await import("../storage/hive")
-  const agentsCol = await col<import("../storage/collections").AgentDoc>("agents")
-  const modelsCol = await col<import("../storage/collections").ModelDoc>("models")
-  const providersCol = await col<import("../storage/collections").ProviderDoc>("providers")
+  const { col, fromIndexable } = await import("../storage/hive.ts")
+  const agentsCol = await col<import("../storage/collections.ts").AgentDoc>("agents")
+  const modelsCol = await col<import("../storage/collections.ts").ModelDoc>("models")
+  const providersCol = await col<import("../storage/collections.ts").ProviderDoc>("providers")
 
   const coordinators = await agentsCol.findBy("role", "coordinator")
   const coordinator = coordinators[0]
@@ -234,14 +269,34 @@ export async function getDefaultLLM(): Promise<{ provider: string; model: string
 /**
  * Resolve provider config from DB (decrypts API key).
  */
+/**
+ * Credenciales y endpoint resueltos por quien llama, en vez de por el proceso.
+ *
+ * Sin esto, la única forma de elegir la key era el secret store de HiveDB o
+ * `process.env[PROVIDER_API_KEY]` — ambos globales al proceso. Un backend
+ * multi-tenant no tiene un proceso por inquilino: o mutaba `process.env` antes
+ * de cada llamada (y entonces dos workspaces concurrentes se pisaban la key), o
+ * levantaba un proceso por llamada sólo para aislarla. Pasar la credencial en la
+ * llamada elimina las dos cosas.
+ *
+ * Todo es opcional: lo que no venga acá se resuelve como siempre.
+ */
+export interface ProviderCredentials {
+  /** Reemplaza la key del secret store y la de `process.env`. */
+  apiKey?: string
+  /** Reemplaza el `base_url` de la fila del proveedor. */
+  baseUrl?: string
+}
+
 export async function resolveProviderConfig(
   providerId: string,
-  modelId: string
+  modelId: string,
+  credentials?: ProviderCredentials
 ): Promise<Pick<LLMCallOptions, "provider" | "model" | "apiKey" | "baseUrl" | "numCtx" | "numGpu" | "contextWindow">> {
-  const { col } = await import("../storage/hive")
-  const { loadProviderApiKey } = await import("../storage/crypto")
-  const providersCol = await col<import("../storage/collections").ProviderDoc>("providers")
-  const modelsCol = await col<import("../storage/collections").ModelDoc>("models")
+  const { col } = await import("../storage/hive.ts")
+  const { loadProviderApiKey } = await import("../storage/crypto.ts")
+  const providersCol = await col<import("../storage/collections.ts").ProviderDoc>("providers")
+  const modelsCol = await col<import("../storage/collections.ts").ModelDoc>("models")
 
   const providerEntry = await providersCol.get(providerId)
   const providerRow = (providerEntry?.doc.enabled && providerEntry?.doc.active) ? providerEntry.doc : undefined
@@ -249,7 +304,13 @@ export async function resolveProviderConfig(
   // Load model's context window for token budget management
   const modelEntry = await modelsCol.get(modelId)
 
-  let apiKey = await loadProviderApiKey(providerId)
+  // La credencial de la llamada gana, y corta acá: si vino una key explícita no
+  // se consulta el secret store ni el entorno, así que un fallback global no
+  // puede colarse en el lugar de la del inquilino.
+  let apiKey = credentials?.apiKey
+  if (!apiKey) {
+    apiKey = await loadProviderApiKey(providerId)
+  }
   if (!apiKey) {
     apiKey = process.env[`${providerId.toUpperCase()}_API_KEY`] || ""
   }
@@ -258,7 +319,7 @@ export async function resolveProviderConfig(
     provider: providerId,
     model: modelId,
     apiKey,
-    baseUrl: providerRow?.base_url || undefined,
+    baseUrl: credentials?.baseUrl || providerRow?.base_url || undefined,
     numCtx: providerRow?.num_ctx ?? undefined,
     numGpu: providerRow?.num_gpu ?? undefined,
     contextWindow: modelEntry?.doc.context_window ?? undefined,

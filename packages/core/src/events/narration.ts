@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { col } from "../storage/hive";
-import type { NarrationEventDoc } from "../storage/collections";
-import { logger } from "../utils/logger";
+import { col } from "../storage/hive.ts";
+import type { NarrationEventDoc } from "../storage/collections.ts";
+import { logger } from "../utils/logger.ts";
 
 const log = logger.child("narration");
 

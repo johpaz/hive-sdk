@@ -1,6 +1,6 @@
-import { logger } from "../../utils/logger"
-import { OpenAICompatBase } from "./openai-compat-base"
-import type { LLMCallOptions, LLMResponse } from "./interface"
+import { logger } from "../../utils/logger.ts"
+import { OpenAICompatBase } from "./openai-compat-base.ts"
+import type { LLMCallOptions, LLMResponse } from "./interface.ts"
 
 const log = logger.child("llm-client")
 

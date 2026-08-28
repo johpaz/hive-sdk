@@ -98,7 +98,7 @@ packages/
 │       ├── agent/          # AgentLoop, ContextCompiler, ConversationStore
 │       │   ├── providers/  # LLM providers (OpenAI, Anthropic, Gemini, Ollama)
 │       │   └── tool-selector.ts, skill-selector.ts, playbook-selector.ts (BM25 sobre HiveDB)
-│       ├── tools/          # 70+ built-in tools + ToolRegistry + ToolExecutor
+│       ├── tools/          # 59 built-in tools + ToolRegistry + ToolExecutor
 │       ├── skills/         # SkillLoader, defineSkill()
 │       ├── swarm/          # DAGScheduler, TaskGraph, WorkerPool
 │       ├── workers/        # Bun Workers: createWorker, WorkerPool, agent.worker.ts
@@ -165,7 +165,7 @@ Model Context Protocol — herramientas externas via STDIO/SSE/WebSocket.
 ## Variables de Entorno
 
 ```bash
-HIVE_DATA_DIR=./data          # Directorio de datos
+HIVE_HOME=~/.hive             # Raíz de datos (base, artefactos, config)
 HIVE_HOST=127.0.0.1           # Gateway host
 HIVE_PORT=18790               # Gateway port
 OPENAI_API_KEY=sk-...         # OpenAI
@@ -187,4 +187,4 @@ bun test --timeout 60000
 
 ---
 
-*Documentación Hive SDK v0.0.17*
+*Documentación Hive SDK — ver `version` en package.json*

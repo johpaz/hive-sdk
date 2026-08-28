@@ -7,9 +7,9 @@
  * - WebSocket /ws — real-time streaming
  */
 
-import { logger } from "../utils/logger";
+import { logger } from "../utils/logger.ts";
 import { runAgent } from "../agent/agent-loop.ts";
-import type { MCPClientManager } from "../mcp/index";
+import type { MCPClientManager } from "../mcp/index.ts";
 
 const log = logger.child("gateway");
 

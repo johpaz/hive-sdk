@@ -13,13 +13,13 @@
  * to judge using this checks result plus the raw evidence.
  */
 
-import { col } from "../storage/hive";
-import type { AgentDoc } from "../storage/collections";
-import type { AcceptanceCriterion } from "./run-store";
-import { interpretCheckResult } from "./goal-runner";
-import { inspectArtifact } from "../artifacts/store";
-import { loadConfig } from "../config/loader";
-import { logger } from "../utils/logger";
+import { col } from "../storage/hive.ts";
+import type { AgentDoc } from "../storage/collections.ts";
+import type { AcceptanceCriterion } from "./run-store.ts";
+import { interpretCheckResult } from "./goal-runner.ts";
+import { inspectArtifact } from "../artifacts/store.ts";
+import { loadConfig } from "../config/loader.ts";
+import { logger } from "../utils/logger.ts";
 
 const log = logger.child("acceptance-checks");
 
@@ -55,8 +55,8 @@ export function sanitizeDiagnostic(value: string, limit = 1000): string {
 async function runCheckTool(criterion: AcceptanceCriterion, objective: string): Promise<AcceptanceCheckResult | null> {
   if (!criterion.checkTool) return null;
   try {
-    const { executeToolBatch } = await import("../tool-runtime");
-    const { createAllTools } = await import("../tools/index");
+    const { executeToolBatch } = await import("../tool-runtime/index.ts");
+    const { createAllTools } = await import("../tools/index.ts");
     const allTools = createAllTools(loadConfig());
     const toolDef = allTools.find((t) => t.name === criterion.checkTool);
     if (!toolDef) {

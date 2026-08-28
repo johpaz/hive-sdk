@@ -1,10 +1,10 @@
-import { col } from "../storage/hive";
+import { col } from "../storage/hive.ts";
 import type {
   DelegationGroupDoc,
   DelegationGroupOutcome,
-} from "../storage/collections";
-import { logger } from "../utils/logger";
-import { publishNarration } from "../events/narration";
+} from "../storage/collections.ts";
+import { logger } from "../utils/logger.ts";
+import { publishNarration } from "../events/narration.ts";
 
 const log = logger.child("delegation-groups");
 const MAX_RETRIES = 8;

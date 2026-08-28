@@ -6,7 +6,7 @@
  * co-located with the DB singleton accessor.
  */
 
-import { getHiveDb } from "./hivedb"
+import { getHiveDb } from "./hivedb.ts"
 import type { Event, EventPattern } from "@johpaz/hive-db"
 
 export type { Event as CausalEvent, EventPattern as CausalEventPattern }

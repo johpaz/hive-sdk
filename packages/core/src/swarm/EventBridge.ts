@@ -9,8 +9,8 @@
 
 import { agentBus } from "../events/agent-bus.ts"
 import { emitCanvas } from "../canvas/emitter.ts"
-import { TaskNode } from "./TaskNode"
-import { DAGResult } from "./TaskResult"
+import { TaskNode } from "./TaskNode.ts"
+import { DAGResult } from "./TaskResult.ts"
 
 const STATUS_TO_CANVAS: Record<string, string> = {
   RUNNING: "thinking",

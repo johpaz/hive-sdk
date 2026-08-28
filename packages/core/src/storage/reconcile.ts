@@ -12,12 +12,12 @@
  * durable queue are activated.
  */
 
-import { col, updateDoc } from "./hive";
-import type { TaskRunDoc, MeetingSessionDoc, AgentRunDoc, JobDoc, TaskDoc } from "./collections";
-import { logger } from "../utils/logger";
+import { col, updateDoc } from "./hive.ts";
+import type { TaskRunDoc, MeetingSessionDoc, AgentRunDoc, JobDoc, TaskDoc } from "./collections.ts";
+import { logger } from "../utils/logger.ts";
 import { reclaimOrInterrupt } from "../gateway/job-store.ts";
-import { interruptRun } from "../agent/run-store";
-import { sendToUserChannel } from "../gateway/channel-notify";
+import { interruptRun } from "../agent/run-store.ts";
+import { sendToUserChannel } from "../gateway/channel-notify.ts";
 
 const log = logger.child("reconcile");
 

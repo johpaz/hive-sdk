@@ -7,10 +7,10 @@
 
 import type { Config } from "../../config/loader.ts"
 import { logger } from "../../utils/logger.ts"
-import { getAgentLoop } from "../agent-loop"
-import { resolveUserId, resolveAgentId } from "../../storage/onboarding"
-import type { ContentPart } from "../../multimodal/types"
-import type { TurnSource } from "../../storage/collections"
+import { getAgentLoop } from "../agent-loop.ts"
+import { resolveUserId, resolveAgentId } from "../../storage/onboarding.ts"
+import type { ContentPart } from "../../multimodal/types.ts"
+import type { TurnSource } from "../../storage/collections.ts"
 
 export type Provider = "openai" | "anthropic" | "gemini" | "mistral" | "kimi" | "ollama" | "openrouter" | "deepseek" | "nvidia" | "hiveagents" | "z-ai" | "modelscope" | "minimax" | "qwen" | "groq" | "opencode-go"
 

@@ -19,8 +19,8 @@
  */
 
 import type { IndexDoc } from "@johpaz/hive-db";
-import { getHiveDb } from "../storage/hivedb";
-import { logger } from "../utils/logger";
+import { getHiveDb } from "../storage/hivedb.ts";
+import { logger } from "../utils/logger.ts";
 
 const log = logger.child("capability-search");
 

@@ -199,14 +199,23 @@ export class WebViewBackend implements BrowserBackend {
   /** Cola de una sola vía: WebView rechaza operaciones solapadas. */
   private queue: Promise<unknown> = Promise.resolve();
 
+  private readonly options: {
+    width?: number;
+    height?: number;
+    show?: boolean;
+    engine?: WebViewEngine;
+  };
+
   constructor(
-    private readonly options: {
+    options: {
       width?: number;
       height?: number;
       show?: boolean;
       engine?: WebViewEngine;
     } = {},
-  ) {}
+  ) {
+    this.options = options;
+  }
 
   private ensureView(): BunWebView {
     if (this.view) return this.view;

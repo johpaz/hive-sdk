@@ -8,10 +8,10 @@
  * @category cron
  */
 
-import type { Tool } from "../types";
-import { col, toIndexable } from "../../storage/hive";
-import type { UserDoc, UserIdentityDoc, ChannelDoc, CronJobDoc, TaskRunDoc } from "../../storage/collections";
-import { logger } from "../../utils/logger";
+import type { Tool } from "../types.ts";
+import { col, toIndexable } from "../../storage/hive.ts";
+import type { UserDoc, UserIdentityDoc, ChannelDoc, CronJobDoc, TaskRunDoc } from "../../storage/collections.ts";
+import { logger } from "../../utils/logger.ts";
 import { Cron } from "croner";
 
 const log = logger.child("CronTools");

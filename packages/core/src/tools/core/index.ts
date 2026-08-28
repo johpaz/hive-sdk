@@ -346,7 +346,7 @@ export const notifyTool: Tool = {
     required: ["message"],
   },
   execute: async (params: Record<string, unknown>, config?: any) => {
-    const { sendToUserChannel } = await import("../../gateway/channel-notify");
+    const { sendToUserChannel } = await import("../../gateway/channel-notify.ts");
     const message = params.message as string;
     const channel = (config?.configurable?.channel as string) ?? "webchat";
     const userId = (config?.configurable?.user_id as string) ?? "";
@@ -423,7 +423,7 @@ export const reportProgressTool: Tool = {
     required: ["progress", "message"],
   },
   execute: async (params: Record<string, unknown>, config?: any) => {
-    const { sendToUserChannel } = await import("../../gateway/channel-notify");
+    const { sendToUserChannel } = await import("../../gateway/channel-notify.ts");
     const progress = params.progress as number;
     const message = params.message as string;
     const taskId = (params.task_id as string) ?? null;

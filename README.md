@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logoblack.png" alt="Hive SDK" width="180" />
+</p>
+
 # @johpaz/hive-sdk
 
 > **Hive Agent Harness SDK** — construí, desplegá y escalá aplicaciones de agentes de IA, con soporte multi-canal, Bun Workers y orquestación en swarm.
@@ -25,6 +29,12 @@ bun add @johpaz/hive-sdk
 Con Hive SDK no montas un agente desde cero: **enganchas tu lógica de negocio en un harness ya armado**.
 
 ## Instalación
+
+> **Requiere Bun.** El paquete se publica como TypeScript y usa APIs de Bun
+> (`Bun.secrets`, `Bun.spawn`, Workers) en 18 archivos del core, así que no
+> corre sobre Node aunque se le apliquen los flags de type-stripping. Si tu
+> backend es Node, hoy la vía es un proceso Bun aparte; el build a JS que
+> levantaría esa restricción todavía no existe.
 
 ```bash
 # Instalar globalmente para el CLI

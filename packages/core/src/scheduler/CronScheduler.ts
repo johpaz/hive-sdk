@@ -6,11 +6,11 @@
  */
 
 import { Cron } from "croner";
-import { logger } from "../utils/logger";
-import { notifyTaskCompletion } from "./integration";
-import { col, toIndexable, fromIndexable } from "../storage/hive";
-import type { CronJobDoc, TaskRunDoc } from "../storage/collections";
-import { expireArtifacts } from "../artifacts/store";
+import { logger } from "../utils/logger.ts";
+import { notifyTaskCompletion } from "./integration.ts";
+import { col, toIndexable, fromIndexable } from "../storage/hive.ts";
+import type { CronJobDoc, TaskRunDoc } from "../storage/collections.ts";
+import { expireArtifacts } from "../artifacts/store.ts";
 import type {
   CronJob,
   TaskRun,
@@ -18,7 +18,7 @@ import type {
   UpdateCronJobInput,
   CronJobStatus,
   CronJobExecutionHandler,
-} from "./types";
+} from "./types.ts";
 
 const log = logger.child("CronScheduler");
 

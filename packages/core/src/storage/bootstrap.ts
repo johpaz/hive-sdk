@@ -11,10 +11,11 @@
  * instead of `DELETE`+`INSERT`.
  */
 
-import { getHiveDb } from "./hivedb";
-import { col } from "./hive";
-import { seedAllData } from "./seed";
-import { ensureSecretsBackend } from "./crypto";
+import { getHiveDb, getOpenHiveDb } from "./hivedb.ts";
+import { col } from "./hive.ts";
+import { seedAllData } from "./seed.ts";
+import { ensureSecretsBackend } from "./crypto.ts";
+import { ensureLegacyThread } from "../agent/thread-store.ts";
 
 interface IndexSpec {
   collection: string;
@@ -102,6 +103,9 @@ const INDEXES: IndexSpec[] = [
   // Stage 7 — meeting
   { collection: "meetingSessions", field: "user_id" },
   { collection: "meetingSessions", field: "status" },
+  { collection: "conversationThreads", field: "user_id" },
+  { collection: "conversationThreads", field: "channel" },
+  { collection: "conversationThreads", field: "archived" },
 ];
 
 async function ensureIndexes(): Promise<void> {
@@ -123,7 +127,27 @@ async function ensureSeedData(): Promise<void> {
   await seedAllData();
 }
 
-let bootstrapped = false;
+// Bootstrap state belongs to a specific database instance. A boolean that
+// survives closeHiveDb() can report a closed/replaced database as ready when
+// tests or long-running processes open a fresh instance in the same runtime.
+let bootstrappedDb: Awaited<ReturnType<typeof getHiveDb>> | null = null;
+
+/**
+ * Antes de la separación por canal todos los canales compartían un solo hilo cuyo
+ * `thread_id` era el `userId`. Esa conversación se registra —sin mover un solo
+ * mensaje— como una conversación más de la web, para que siga siendo legible desde
+ * la lista. Idempotente: no hace nada si ya está registrada o si no hay historial.
+ */
+async function ensureLegacyThreads(): Promise<void> {
+  try {
+    const users = await col<{ id: string }>("users");
+    for (const user of await users.scan({})) {
+      await ensureLegacyThread(user.id);
+    }
+  } catch {
+    // Base sin usuarios todavía (onboarding pendiente) — nada que registrar.
+  }
+}
 
 /**
  * Idempotent entry point: opens the database, ensures indexes, reseeds the
@@ -131,7 +155,7 @@ let bootstrapped = false;
  * gateway boot.
  */
 export async function ensureHiveDb(): Promise<void> {
-  await getHiveDb();
+  const db = await getHiveDb();
   await ensureIndexes();
   // Mint the master key before anything can save an API key, so a fresh
   // install is durable from the first keystroke rather than after a restart
@@ -139,13 +163,15 @@ export async function ensureHiveDb(): Promise<void> {
   ensureSecretsBackend();
   await ensureSeedData();
 
+  await ensureLegacyThreads();
+
   const meta = await col<{ value: number }>("meta");
   const existing = await meta.get("schemaVersion");
   if (!existing) await meta.put("schemaVersion", { value: 1 }, { expectedVersion: 0 });
 
-  bootstrapped = true;
+  bootstrappedDb = db;
 }
 
 export function isBootstrapped(): boolean {
-  return bootstrapped;
+  return bootstrappedDb !== null && bootstrappedDb === getOpenHiveDb();
 }
