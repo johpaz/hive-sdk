@@ -7,7 +7,7 @@
  * Antes esto corría sobre `CDPClient` (agent-browser) y sólo con
  * `BROWSER_TESTS=1`, porque arrancarlo costaba una instalación y ~2 s. Ahora el
  * WebView abre en menos de un segundo sin instalar nada, así que corre siempre
- * que haya un Chromium; `BROWSER_TESTS=0` lo apaga.
+ * que haya un Chromium, pero sigue siendo opt-in: `BROWSER_TESTS=1` lo enciende.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
@@ -100,7 +100,12 @@ const PAGE2_HTML = `<!DOCTYPE html>
 
 // ─── Guard: solo corre con BROWSER_TESTS=1 ───────────────────────────────────
 
-const RUN = isWebViewSupported() && process.env.BROWSER_TESTS !== "0";
+// Opt-in explícito, como dice el encabezado de arriba. `isWebViewSupported()`
+// sólo comprueba que EXISTA un Chromium, no que arranque: en un contenedor sin
+// sandbox o sin D-Bus el binario está y el navegador igual muere, y entonces
+// estos ~70 tests de integración tumban la publicación por el entorno. Con la
+// variable, quien tiene escritorio los corre; CI no.
+const RUN = isWebViewSupported() && process.env.BROWSER_TESTS === "1";
 
 // ─── Estado compartido ────────────────────────────────────────────────────────
 

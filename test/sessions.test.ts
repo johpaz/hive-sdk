@@ -38,6 +38,20 @@ afterEach(() => {
   closeHiveDb();
 });
 
+/**
+ * Espera a que una lectura eventual-consistente devuelva algo, o falla con un
+ * mensaje claro en vez de un `undefined` desconcertante.
+ */
+async function esperarA<T>(leer: () => Promise<T | null>, timeoutMs = 5000): Promise<T> {
+  const limite = Date.now() + timeoutMs;
+  while (Date.now() < limite) {
+    const valor = await leer();
+    if (valor !== null) return valor;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error(`el valor esperado no llegó en ${timeoutMs}ms`);
+}
+
 function checkpointState(overrides: Partial<RunCheckpointState> = {}): RunCheckpointState {
   return {
     version: 1,
@@ -83,18 +97,34 @@ describe("sessions: creación e identidad", () => {
 });
 
 describe("sessions: mensajes y listado", () => {
-  test("appendMessage persiste y actualiza el catálogo de la sesión", async () => {
+  test("appendMessage persiste el mensaje de inmediato", async () => {
     const session = await createSession({ userId: "u1", channel: "webchat", peerId: "c1" });
     await appendMessage(session.id, "user", "hola");
     await appendMessage(session.id, "assistant", "buenas");
 
+    // El historial sí es consistente al instante: es la escritura que importa.
     const history = await getSessionHistory(session.id);
     expect(history.map((m) => m.content)).toEqual(["hola", "buenas"]);
+  });
 
-    const refreshed = await getSession(session.id);
-    expect(refreshed?.messageCount).toBe(2);
+  test("el catálogo de la sesión se pone al día (consistencia eventual)", async () => {
+    const session = await createSession({ userId: "u1", channel: "webchat", peerId: "c1" });
+    await appendMessage(session.id, "user", "hola");
+    await appendMessage(session.id, "assistant", "buenas");
+
+    // `addMessage` actualiza el catálogo sin esperar el resultado, para no
+    // bloquear la persistencia del mensaje detrás del contador. Eso lo vuelve
+    // consistente-eventual, así que esperarlo es parte del contrato, no una
+    // concesión del test: afirmar el valor de una vez pasaba en una máquina
+    // ociosa y fallaba en CI.
+    const puestoAlDia = await esperarA(async () => {
+      const s = await getSession(session.id);
+      return s?.messageCount === 2 ? s : null;
+    });
+
+    expect(puestoAlDia.messageCount).toBe(2);
     // El título se deriva del primer mensaje del usuario.
-    expect(refreshed?.title).toBe("hola");
+    expect(puestoAlDia.title).toBe("hola");
   });
 
   test("listSessions ordena por actividad, de la más reciente a la más vieja", async () => {

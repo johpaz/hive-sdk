@@ -29,7 +29,17 @@ const { clearStoredSession, loadStoredCookies } = await import(
   "../packages/core/src/tools/web/browser-session.ts"
 );
 
-const LIVE = isWebViewSupported();
+/**
+ * Este test lanza un SEGUNDO proceso que abre su propio Chrome, así que pide
+ * más que "hay un Chromium": en un runner de CI —contenedor, a menudo root—
+ * Chromium no arranca sin `--no-sandbox`, y la vía para eso es apuntar
+ * `BUN_CHROME_PATH` a un wrapper (así lo resuelve el Dockerfile de hive). Sin
+ * ese montaje el subproceso muere y el test falla por el entorno, no por el
+ * código, y bloquea la publicación.
+ *
+ * Por eso es opt-in explícito: `BROWSER_TESTS=1` en una máquina con escritorio.
+ */
+const LIVE = isWebViewSupported() && process.env.BROWSER_TESTS === "1";
 const COOKIE = "sid=secreto-de-sesion-123";
 
 /** Un sitio con login: `/entrar` deja la cookie, `/` dice quién sos. */

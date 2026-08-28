@@ -105,7 +105,13 @@ describe("keychain compatibility", () => {
       delete: async ({ name }: { name: string }) => void keychain.delete(name),
     };
     try {
-      const { loadProviderApiKey, storeProviderApiKey } = await import("../packages/core/src/storage/crypto");
+      const { loadProviderApiKey, storeProviderApiKey, resetKeychainProbe } =
+        await import("../packages/core/src/storage/crypto");
+      // El resultado del primer sondeo del keychain se cachea para todo el
+      // proceso. Donde no hay libsecret —CI headless— un test anterior ya lo
+      // dejó en "no disponible", y entonces el doble de arriba nunca llega a
+      // usarse: la lectura corta antes. Resetear lo vuelve a dejar sin probar.
+      resetKeychainProbe();
       expect(await loadProviderApiKey("legacy")).toBe("sk-from-keychain");
 
       // New writes are mirrored to the keychain as well, so a downgrade or a
@@ -114,6 +120,9 @@ describe("keychain compatibility", () => {
       expect(keychain.get("provider:mirrored:api_key")).toBe("sk-mirrored");
     } finally {
       (Bun as any).secrets = original;
+      // No dejar el sondeo contaminado con el resultado del doble.
+      const { resetKeychainProbe } = await import("../packages/core/src/storage/crypto");
+      resetKeychainProbe();
     }
   });
 });

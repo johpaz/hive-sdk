@@ -32,6 +32,24 @@
 
 ### Cambiado
 
+- **Los tests que manejan un navegador real son opt-in (`BROWSER_TESTS=1`).**
+  Su guarda era `isWebViewSupported()`, que sólo comprueba que exista un binario
+  de Chromium — no que arranque. En un runner de CI (contenedor, a menudo root)
+  el binario está y Chromium muere igual sin `--no-sandbox`, así que ~90 tests
+  de integración fallaban por el entorno. Como los tests son condición para
+  publicar, eso bloqueaba el release. Los describe unitarios de esos mismos
+  archivos —`resolveBackendKind`, detección de motor, `normalizeCookies`,
+  `sessionPersistenceEnabled`— siguen corriendo siempre: son los que cubren el
+  contrato del backend.
+
+- **`resetKeychainProbe()`** en `storage/crypto.ts`. Si el keychain del SO no
+  responde, el resultado se cachea a nivel de módulo para no reintentar en cada
+  lectura — correcto en producción, pero significa que el primer sondeo vale
+  para todo el proceso. Un test que sustituya `Bun.secrets` por un doble queda
+  cortocircuitado si algo ya sondeó y falló antes, que es lo que pasa en CI
+  headless.
+
+
 - **Automatización web: un solo backend, `Bun.WebView`.** Se retiró
   `AgentBrowserBackend`, que hablaba con el CLI de agent-browser por
   subproceso. El motivo no es de estilo: medido en Bun 1.4 el WebView **sí**

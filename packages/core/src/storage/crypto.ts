@@ -79,6 +79,20 @@ async function _readCollectionSecret(name: string): Promise<string | null> {
   }
 }
 
+/**
+ * Olvida si el keychain del SO respondió o no.
+ *
+ * `_keychainOk` se cachea a nivel de módulo a propósito: en un servidor sin
+ * libsecret cada lectura tiraría y no tiene sentido reintentarlo. El costo es
+ * que el resultado del primer sondeo vale para todo el proceso, y un test que
+ * sustituya `Bun.secrets` por un doble queda cortocircuitado si algo ya sondeó
+ * antes y falló. Resetear acá lo vuelve a dejar sin probar.
+ */
+export function resetKeychainProbe(): void {
+  _keychainOk = null
+  _mem.clear()
+}
+
 async function _keychainGet(name: string): Promise<string | null> {
   if (_keychainOk === false) return null
   try {

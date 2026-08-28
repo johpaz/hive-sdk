@@ -98,7 +98,14 @@ describe("detección de motor", () => {
 
 // ─── WebViewBackend vivo ──────────────────────────────────────────────────────
 
-const LIVE = isWebViewSupported();
+// Los describe de abajo abren un navegador de verdad. `isWebViewSupported()`
+// sólo dice que hay un Chromium instalado, no que arranque: en un contenedor
+// sin sandbox o sin D-Bus el binario está y el navegador muere igual. Como los
+// tests condicionan la publicación, van tras un opt-in explícito. Los describe
+// unitarios de este archivo —resolveBackendKind, detección de motor,
+// normalizeCookies, sessionPersistenceEnabled— siguen corriendo siempre, y son
+// los que cubren el contrato del backend.
+const LIVE = isWebViewSupported() && process.env.BROWSER_TESTS === "1";
 // El charset va explícito: sin él el motor asume latin-1 y "botón" llega como
 // "botÃ³n". Una página real lo declara; una data: URL no.
 const page = (html: string) => `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
