@@ -49,7 +49,6 @@ const EXPECTED: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\.test\.ts$/, reason: "los tests no se portan" },
   { pattern: /\.generated\.ts$/, reason: "archivo generado; se regenera, no se copia" },
   { pattern: /^agent\/realtime-providers\//, reason: "portado; hive lo consume desde su gateway" },
-  { pattern: /^tools\/web\/(browser-session|computer-use)\.ts$/, reason: "features del cliente de escritorio, fuera del SDK" },
   { pattern: /^gateway\//, reason: "hive tiene el servidor de la app; el SDK sólo la librería" },
 ];
 

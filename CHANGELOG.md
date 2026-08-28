@@ -30,6 +30,38 @@
   y la credencial viajaba al prompt del coordinador. Afecta a **0.1.5 y
   anteriores**: el archivo viaja en el tarball publicado.
 
+### Cambiado
+
+- **Automatización web: un solo backend, `Bun.WebView`.** Se retiró
+  `AgentBrowserBackend`, que hablaba con el CLI de agent-browser por
+  subproceso. El motivo no es de estilo: medido en Bun 1.4 el WebView **sí**
+  corre headless (Bun lanza Chromium con `--headless`), que era la única razón
+  por la que agent-browser seguía siendo el default. Lo que quedaba era su
+  costo — ~40 ms de `Bun.spawn` por operación contra ~0,3 ms, y ~88 MB con su
+  propia copia de Chrome.
+
+  Lo importante para quien consume el paquete: el backend viejo ejecutaba
+  **`bun add agent-browser@latest` en el entorno del consumidor**, al primer uso
+  de una browser tool. Una versión flotante bajada de npm en runtime, en
+  producción. Eso ya no existe.
+
+  Requisitos ahora: un Chromium instalado (o `BUN_CHROME_PATH`) y **Bun ≥ 1.4**,
+  declarado en `engines`. La clave de config `tools.browser.backend` sobrevive:
+  `"agent-browser"` se acepta, avisa una vez y usa el WebView, así que las
+  configuraciones viejas no se rompen.
+
+- **Sesión de navegador persistente** (`tools/web/browser-session.ts`). El
+  perfil de Chrome que abre Bun es efímero —su ruta lleva un hash que cambia
+  entre procesos— así que las cookies se guardan y restauran a mano. Sin esto
+  cada reinicio empezaba sin logins. Se controla con `tools.browser.persistSession`
+  (activo por defecto).
+
+- **Nueva tool `computer_use_task`**: operar el navegador mirando la pantalla
+  —clic por coordenadas, escribir, navegar— cuando no hay un selector CSS
+  estable (canvas, UIs generadas, visores embebidos).
+
+- CI actualizado a **Bun 1.4.0**, alineado con `hive`.
+
 ### Añadido
 
 - **`@johpaz/hive-sdk/sessions`** — la conversación de un usuario como una sola

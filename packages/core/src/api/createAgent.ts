@@ -92,7 +92,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
 	const coreConfig = await loadConfig();
 
-	// Browser automation (agent-browser) si está habilitado.
+	// Browser automation (Bun.WebView) si está habilitado.
 	try {
 		const { initializeBrowserService } = await import("../tools/web/browser-service.ts");
 		const browserService = initializeBrowserService(coreConfig);

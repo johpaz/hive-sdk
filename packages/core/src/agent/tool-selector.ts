@@ -200,6 +200,7 @@ export const CORE_TOOL_CATALOG: ToolDescriptor[] = [
     { name: "api_request", description: "Perform an authorized HTTP request against a REST endpoint and validate the response. Spanish keywords: llamar api, request rest, consumir endpoint, petición http, hacer get, hacer post", category: "api", abstractionLevel: "atomic" },
 
     // Artifacts
+    { name: "computer_use_task", description: "Operate the browser by looking at the screen: click by coordinates, type and navigate when no stable CSS selector exists (canvas, generated UIs, embedded viewers). Acts on Hive's own browser, never on the user screen. Spanish keywords: usar el navegador, hacer clic donde veas, operar una página, rellenar formulario, computer use, mirar la pantalla", category: "browser", abstractionLevel: "orchestration" },
     { name: "artifact_inspect", description: "Inspect a managed artifact's integrity and metadata without modifying it. Spanish keywords: inspeccionar artefacto, verificar archivo generado, metadatos artefacto, comprobar entrega", category: "web", abstractionLevel: "atomic" },
     { name: "artifact_read", description: "Read a managed artifact's text content in slices, or search inside it — the way to open any artifact_ref a tool returned. Spanish keywords: leer artefacto, ver contenido del artefacto, abrir resultado grande, buscar dentro del artefacto", category: "web", abstractionLevel: "atomic" },
 

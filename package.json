@@ -71,6 +71,9 @@
     "CHANGELOG.md",
     "LICENSE"
   ],
+  "engines": {
+    "bun": ">=1.4.0"
+  },
   "workspaces": [
     "packages/core",
     "packages/cli"

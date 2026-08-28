@@ -3,9 +3,14 @@ import { startGateway } from "./index.ts";
 
 describe("gateway", () => {
   let server: ReturnType<typeof startGateway> extends Promise<infer T> ? T : never;
+  // Puerto 0 = el sistema asigna uno libre. Con un puerto fijo, cualquier otro
+  // proceso que lo ocupe tumba la suite entera — y desde que los tests son
+  // condición para publicar, un puerto ajeno bloqueaba el release.
+  let base: string;
 
   beforeAll(async () => {
-    server = await startGateway({ host: "127.0.0.1", port: 18791, agentId: "test" });
+    server = await startGateway({ host: "127.0.0.1", port: 0, agentId: "test" });
+    base = `http://127.0.0.1:${server.port}`;
   });
 
   afterAll(() => {
@@ -13,7 +18,7 @@ describe("gateway", () => {
   });
 
   it("returns health status", async () => {
-    const res = await fetch("http://127.0.0.1:18791/status");
+    const res = await fetch(`${base}/status`);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("ok");
@@ -22,12 +27,12 @@ describe("gateway", () => {
   });
 
   it("returns 404 for unknown routes", async () => {
-    const res = await fetch("http://127.0.0.1:18791/unknown");
+    const res = await fetch(`${base}/unknown`);
     expect(res.status).toBe(404);
   });
 
   it("chat endpoint requires database setup", async () => {
-    const res = await fetch("http://127.0.0.1:18791/chat", {
+    const res = await fetch(`${base}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: "hello" }),
