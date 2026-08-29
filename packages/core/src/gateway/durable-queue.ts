@@ -76,6 +76,17 @@ export function registerExecutor(type: JobType, executor: JobExecutor): void {
   log.info(`[registerExecutor] Registered executor for type=${type}`);
 }
 
+/**
+ * Los tipos de job que este proceso sabe ejecutar.
+ *
+ * El registro era privado, así que no había forma de comprobar desde fuera si
+ * un tipo quedó cableado — y un job encolado sin ejecutor no falla al encolarse
+ * sino al tomarse, que es tarde y lejos de donde está el error.
+ */
+export function getRegisteredExecutorTypes(): JobType[] {
+  return [...executors.keys()];
+}
+
 export interface JobTerminalOutcome {
   ok: boolean;
   result?: unknown;
@@ -92,7 +103,8 @@ export function registerTerminalHook(type: JobType, hook: JobTerminalHook): void
   terminalHooks.set(type, hook);
 }
 
-async function runTerminalHook(job: JobDoc, outcome: JobTerminalOutcome): Promise<void> {
+/** Exported so job-store.ts's reclaimOrInterrupt can fire it too (dynamic import there — see its call site). */
+export async function runTerminalHook(job: JobDoc, outcome: JobTerminalOutcome): Promise<void> {
   const hook = terminalHooks.get(job.type);
   if (!hook) return;
   try {

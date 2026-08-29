@@ -14,7 +14,7 @@
  */
 
 import { col } from "../storage/hive.ts"
-import type { EthicsDoc, AgentDoc, UserDoc } from "../storage/collections.ts"
+import type { EthicsDoc, AgentDoc, UserDoc } from "../storage/collections"
 import { logger } from "../utils/logger.ts"
 import { formatContext } from "../utils/toon.ts"
 import { resolveUserId } from "../storage/onboarding.ts"
@@ -136,7 +136,7 @@ export async function buildSystemPrompt(opts: BuildSystemPromptOpts): Promise<st
     if (Object.keys(userData).length > 0) {
       userSection += formatContext(userData) + "\n\n"
       if (agent.role === "coordinator" && user.email) {
-        userSection += `Cuando el usuario diga "envíame", "mándame" o "a mi correo" sin indicar otro destinatario, usá CorreoPropio. Para terceras personas, resolvé su dirección por separado.\n\n`
+        userSection += `Cuando el usuario diga "envíame", "mándame" o "a mi correo" sin indicar otro destinatario, usa CorreoPropio. Para terceras personas, resuelve su dirección por separado.\n\n`
       }
     } else {
       userSection += `Usuario ID: ${userId}\n\n`

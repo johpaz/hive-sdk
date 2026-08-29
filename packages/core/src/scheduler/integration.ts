@@ -12,6 +12,8 @@ import { resolveAgentId } from "../storage/onboarding.ts";
 import { sendToUserChannel } from "../gateway/channel-notify.ts";
 import { getNarration } from "../events/tool-narration.ts";
 import { addMessage } from "../agent/conversation-store.ts";
+import { makeThreadId, CRON_CHANNEL } from "../agent/thread-id.ts";
+import { threadForChannel } from "../agent/thread-store.ts";
 import { resolveBestChannel } from "../tools/cron/index.ts";
 import { col } from "../storage/hive.ts";
 import type { UserDoc, CronJobDoc } from "../storage/collections.ts";
@@ -123,7 +125,11 @@ ${prompt || `Execute tool: ${job.tool_name}`}`;
     try {
       const agentLoop = buildAgentLoop({ mcpManager: undefined });
       
-      const sessionId = `sched_${job.id}_${Date.now()}`;
+      // Un hilo estable por tarea programada. Antes era
+      // `sched_${job.id}_${Date.now()}`: cada disparo estrenaba un hilo, así que
+      // la tarea nunca recordaba sus ejecuciones anteriores y cada una dejaba
+      // mensajes huérfanos en `conversations` que ya nadie volvía a leer.
+      const sessionId = makeThreadId(user?.id || "default", CRON_CHANNEL, job.id);
 
       const agentChannel = (job.channel && job.channel !== "system")
         ? job.channel
@@ -136,10 +142,10 @@ ${prompt || `Execute tool: ${job.tool_name}`}`;
         if (!agentChannel) return;
         try {
           if (step.type === "tool_call" && step.toolName) {
-            await sendToUserChannel(agentChannel, user?.id || "", getNarration(step.toolName));
+            await sendToUserChannel(agentChannel, user?.id || "", getNarration(step.toolName), { threadId: sessionId });
           } else if (step.type === "text" && step.message) {
             const trimmed = step.message.trim();
-            if (trimmed) await sendToUserChannel(agentChannel, user?.id || "", trimmed);
+            if (trimmed) await sendToUserChannel(agentChannel, user?.id || "", trimmed, { threadId: sessionId });
           }
         } catch (err) {
           log.warn(`[execute] Narration send failed: ${(err as Error).message}`);
@@ -239,13 +245,18 @@ export async function notifyTaskCompletion(
 
   log.info(`[notify] Sending notification to ${notifyChannel}: "${message.slice(0, 50)}..."`);
 
+  // El aviso se guarda en el hilo donde el usuario lo va a leer —su conversación
+  // activa en la web, o el chat del canal— y no en el hilo del usuario, que desde
+  // la separación por canal ya no es donde mira nadie.
+  const notifyThreadId = (await threadForChannel(userId, notifyChannel)) ?? userId;
+
   try {
-    await addMessage(userId, "assistant", message, { channel: notifyChannel });
+    await addMessage(notifyThreadId, "assistant", message, { channel: notifyChannel });
   } catch (e) {
     log.warn(`[notify] Failed to persist notification to DB: ${(e as Error).message}`);
   }
 
-  await sendToUserChannel(notifyChannel, userId, message);
+  await sendToUserChannel(notifyChannel, userId, message, { threadId: notifyThreadId });
   log.info(`[notify] Notification sent to ${notifyChannel}`);
 }
 

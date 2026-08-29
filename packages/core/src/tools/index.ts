@@ -215,3 +215,12 @@ export {
 export {
   apiRequestTool,
 } from "./api/index.ts";
+
+// Arranque del navegador. Las browser tools existen en el catálogo desde el
+// seed, pero no operan hasta que alguien levanta el servicio: quien construya
+// sobre el SDK necesita poder hacerlo sin importar rutas internas.
+export {
+  initializeBrowserService,
+  getBrowserService,
+  shutdownBrowser,
+} from "./web/browser-service.ts";

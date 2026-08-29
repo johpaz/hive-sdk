@@ -83,7 +83,10 @@ function canonicalizeImports(line: string): string {
     // El mismo módulo, visto desde el SDK como ruta relativa a su propio core.
     .replace(/(?:\.\.\/)+mcp(?:\/index)?(?:\.ts)?/g, "«mcp»")
     .replace(/(?:\.\.\/)+skills(?:\/index)?(?:\.ts)?/g, "«skills»")
+    // Cubre tanto `from "..."` como `await import("...")`: la extensión y el
+    // `/index` son estilo, no divergencia.
     .replace(/(\.\.?\/[\w./-]*?)(?:\/index)?\.ts(["'])/g, "$1$2")
+    .replace(/(import\s*\(\s*["'])(\.\.?\/[\w./-]*?)\/index(["'])/g, "$1$2$3")
     .replace(/(from\s+["'])(\.\.?\/[\w./-]*?)\/index(["'])/g, "$1$2$3");
 }
 

@@ -51,6 +51,15 @@
   Ahora el test usa un id de proveedor propio (`test-tenant-isolation`) y limpia
   sus secretos, sin tocar el módulo ni la credencial de nadie.
 
+- **El caché de disponibilidad del keychain se envenenaba para todo el proceso.**
+  `_keychainOk` recuerda si `Bun.secrets` respondió, para no reintentar en cada
+  lectura en un servidor sin libsecret. El problema es que ese resultado valía
+  para siempre: una vez marcado como no disponible, sustituir `Bun.secrets` por
+  otro backend —o por un doble de test— no servía de nada, porque la lectura
+  cortaba antes de tocarlo. Ahora se detecta que el objeto cambió de identidad y
+  el sondeo se invalida solo. Era la causa de que el test de compatibilidad con
+  keychain fallara en CI headless (y sólo ahí).
+
 - **`resetKeychainProbe()`** en `storage/crypto.ts`. Si el keychain del SO no
   responde, el resultado se cachea a nivel de módulo para no reintentar en cada
   lectura — correcto en producción, pero significa que el primer sondeo vale
@@ -91,6 +100,31 @@
 
 ### Añadido
 
+- **El harness trae ejecutores listos** (`initHarnessExecutors()`). La cola
+  durable sabía encolar, reintentar y recuperar tras un crash, pero no ejecutar:
+  registrar los ejecutores quedaba en manos de quien usara el SDK, y eso son
+  ~420 líneas de cableado —epoch, proof packets, criterios de aceptación,
+  fan-in de delegaciones— antes de correr un solo enjambre durable. Ahora vienen
+  `worker_task` (worker delegado en contexto aislado, con verificación de sus
+  criterios) y `goal_run` (varios turnos contra un objetivo hasta verificarlo o
+  agotar el presupuesto).
+
+  `chat_turn` no está a propósito: qué es un canal y cómo se transmite un token
+  lo define la aplicación. Se registra desde fuera con `registerExecutor()`.
+  Registrar sigue siendo opt-in — `initHarnessExecutors()` no se llama sola.
+
+- **`getRegisteredExecutorTypes()`** — el registro era privado, así que no había
+  forma de comprobar si un tipo quedó cableado. Un job encolado sin ejecutor no
+  falla al encolarse sino al tomarse, lejos de donde está el error.
+
+- **Superficie pública completa**: 33 subpaths (antes 28). `events/` y
+  `resilience/` no tenían barril, `canvas/` no exportaba su emitter, `artifacts/`
+  no existía como módulo, y `./events` apuntaba a un solo archivo — el
+  **agent-bus**, que es la mensajería entre workers de un enjambre, era
+  inalcanzable desde fuera. También se exponen `./tool-runtime`, `./channels`,
+  `./voice`, y `initializeBrowserService`/`activateBrowserTools`, sin los cuales
+  las browser tools estaban en el catálogo pero nadie podía arrancarlas.
+
 - **`@johpaz/hive-sdk/sessions`** — la conversación de un usuario como una sola
   cosa. Hasta acá "sesión" estaba repartida entre `thread-store` (identidad),
   `conversation-store` (mensajes), `run-store` (ejecución) y un `Map` en memoria
@@ -123,6 +157,26 @@
   consumidor se defendía pineando la versión exacta.
 
 ### Corregido
+
+- **Un job que moría por expiración de lease no disparaba su terminal hook.** La
+  ruta normal de fallo sí lo hacía; la de recuperación tras un crash, no. El
+  aviso al usuario y el fan-in de delegaciones se perdían en silencio justo
+  cuando más importaban.
+
+- **Los artefactos de imagen no llegaban al consumidor.** El agent loop ya los
+  emitía (`chunk.artifacts.images`, vía mcp-result-normalizer), pero el wrapper
+  `AgentRunner` no los propagaba, así que una imagen producida por una tool MCP
+  se perdía antes de salir del SDK.
+
+- **NVIDIA no emitía razonamiento.** NIM lo mantiene apagado por defecto y el
+  interruptor no es `reasoning_effort` sino `chat_template_kwargs`, con una
+  clave distinta por familia de modelo. Se añade el reintento sin esos extras
+  cuando el proveedor responde 400/422: perder el razonamiento es mejor que
+  perder el turno.
+
+- **Un turno con más de una tool call podía morir por un hueco de empaquetado.**
+  `resolveWorkerEntry()` lanzaba si no encontraba el worker; ahora devuelve null
+  y degrada a hilo principal.
 
 - **`touchThread` perdía mensajes en el contador.** El incremento se calculaba
   fuera del reintento de `updateDoc`, así que ante un conflicto de versión el

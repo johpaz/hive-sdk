@@ -29,6 +29,22 @@ interface SecretDoc {
 const _mem = new Map<string, string>()
 let _keychainOk: boolean | null = null // null = untested
 
+let _keychainApi: unknown = undefined
+
+/**
+ * A test double or a recovered runtime may replace Bun.secrets. Reset the
+ * cached availability result when that API object changes so a previous
+ * headless failure cannot poison the replacement backend forever.
+ */
+function _getKeychainApi(): any {
+  const api = (Bun as any).secrets
+  if (api !== _keychainApi) {
+    _keychainApi = api
+    _keychainOk = null
+  }
+  return api
+}
+
 async function _get(name: string): Promise<string | null> {
   const cached = _mem.get(name)
   if (cached !== undefined) return cached
@@ -82,11 +98,10 @@ async function _readCollectionSecret(name: string): Promise<string | null> {
 /**
  * Olvida si el keychain del SO respondió o no.
  *
- * `_keychainOk` se cachea a nivel de módulo a propósito: en un servidor sin
- * libsecret cada lectura tiraría y no tiene sentido reintentarlo. El costo es
- * que el resultado del primer sondeo vale para todo el proceso, y un test que
- * sustituya `Bun.secrets` por un doble queda cortocircuitado si algo ya sondeó
- * antes y falló. Resetear acá lo vuelve a dejar sin probar.
+ * Sustituir `Bun.secrets` por un doble ya NO necesita esto: `_getKeychainApi()`
+ * detecta que el objeto cambió e invalida el sondeo solo. Queda para el caso
+ * que aquello no cubre —vaciar además el caché en memoria (`_mem`)— y porque
+ * ya salió publicado.
  */
 export function resetKeychainProbe(): void {
   _keychainOk = null
@@ -94,9 +109,10 @@ export function resetKeychainProbe(): void {
 }
 
 async function _keychainGet(name: string): Promise<string | null> {
+  const keychain = _getKeychainApi()
   if (_keychainOk === false) return null
   try {
-    const val = await (Bun as any).secrets.get({ service: SERVICE, name })
+    const val = await keychain.get({ service: SERVICE, name })
     _keychainOk = true
     return val ?? null
   } catch {
@@ -106,9 +122,10 @@ async function _keychainGet(name: string): Promise<string | null> {
 }
 
 async function _keychainSet(name: string, value: string): Promise<boolean> {
+  const keychain = _getKeychainApi()
   if (_keychainOk === false) return false
   try {
-    await (Bun as any).secrets.set({ service: SERVICE, name, value })
+    await keychain.set({ service: SERVICE, name, value })
     _keychainOk = true
     return true
   } catch {

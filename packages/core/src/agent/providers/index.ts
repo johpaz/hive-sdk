@@ -62,6 +62,8 @@ export interface ModelResponse {
     totalTokens: number
   }
   finishReason?: string
+  /** Image artifacts (mcp-result-normalizer.ts, agent-loop.ts's turnImageArtifacts) produced by tools this turn. */
+  imageArtifacts?: Array<{ artifactId: string; mimeType: string }>
 }
 
 export class AgentRunner {
@@ -87,6 +89,7 @@ export class AgentRunner {
       throw new Error("AgentLoop not initialized")
     }
 
+    let imageArtifacts: ModelResponse["imageArtifacts"]
     let lastAgentContent = ""
     let accumulatedAgentContent = ""  // Accumulate content from all agent chunks
     let toolCalls: ModelResponse["toolCalls"] = []
@@ -190,6 +193,10 @@ export class AgentRunner {
           totalInputTokens += chunk.usage.input_tokens
           totalOutputTokens += chunk.usage.output_tokens
         }
+
+        if (chunk.artifacts?.images?.length) {
+          imageArtifacts = [...(imageArtifacts ?? []), ...chunk.artifacts.images]
+        }
       }
 
       logger.debug(`[STREAM] done. totalChunks=${chunkCount} lastAgentContent length=${lastAgentContent.length}, accumulated length=${accumulatedAgentContent.length}`)
@@ -208,6 +215,7 @@ export class AgentRunner {
           totalTokens: totalInputTokens + totalOutputTokens,
         },
         finishReason: "stop",
+        imageArtifacts,
       }
     } catch (error) {
       logger.error("AgentRunner error:", error)

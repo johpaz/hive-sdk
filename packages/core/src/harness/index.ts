@@ -11,11 +11,21 @@
  * dos estados posibles, así que ahora esto re-exporta la implementación única y el
  * subpath `@johpaz/hive-sdk/harness` sigue funcionando igual.
  *
- * El módulo no se cablea solo dentro del agent loop: la app decide qué significa
- * "durable" para sus tipos de job y registra ejecutores con `registerExecutor()`.
+ * La app decide qué significa "durable" para sus tipos de job. Para los dos
+ * casos que necesita cualquier enjambre —ejecutar un worker delegado y
+ * perseguir un objetivo— hay ejecutores listos: `initHarnessExecutors()`. Para
+ * el resto, `registerExecutor()`.
  */
 
 import { ensureHiveDb } from "../storage/bootstrap.ts";
+
+// ─── Ejecutores listos para usar ─────────────────────────────────────────────
+// La cola sabe encolar, reintentar y recuperar; estos son los que saben hacer
+// el trabajo. Ver executors.ts para por qué `chat_turn` no está entre ellos.
+export {
+  initHarnessExecutors,
+  setHarnessExecutorMCPManager,
+} from "./executors.ts";
 
 // ─── Cola y almacén de jobs ──────────────────────────────────────────────────
 export * from "../gateway/job-store.ts";

@@ -88,6 +88,7 @@ export {
 
 // ─── Onboarding e identidad ──────────────────────────────────────────────────
 export type { OnboardingSection } from "./onboarding.ts";
+export { activateBrowserTools } from "./onboarding.ts";
 export {
   resolveUserId,
   resolveAgentId,

@@ -17,7 +17,7 @@
  */
 
 import { col } from "../storage/hive.ts"
-import type { SkillDoc } from "../storage/collections.ts"
+import type { SkillDoc } from "../storage/collections"
 import { logger } from "../utils/logger.ts"
 import { isMinimalSkill } from "./minimal-loadout.ts"
 import { isCalendarOperation } from "./routing-intent.ts"
@@ -109,7 +109,7 @@ const STOPWORDS = new Set([
     "más", "mas", "ya", "yo", "tu", "te", "ti", "mi", "me",
     "hola", "hi", "hello", "hey", "gracias", "thank", "please",
     "ok", "okay", "yes", "si", "no", "bien", "good", "great",
-    "puedes", "necesito", "quiero", "podés", "necesitás", "querés",
+    "puedes", "necesito", "quiero", "necesitas", "quieres",
 ])
 
 /** Conversational patterns that should return empty skill list */

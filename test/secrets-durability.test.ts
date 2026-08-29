@@ -105,13 +105,13 @@ describe("keychain compatibility", () => {
       delete: async ({ name }: { name: string }) => void keychain.delete(name),
     };
     try {
-      const { loadProviderApiKey, storeProviderApiKey, resetKeychainProbe } =
+      const { loadProviderApiKey, storeProviderApiKey } =
         await import("../packages/core/src/storage/crypto");
-      // El resultado del primer sondeo del keychain se cachea para todo el
-      // proceso. Donde no hay libsecret —CI headless— un test anterior ya lo
-      // dejó en "no disponible", y entonces el doble de arriba nunca llega a
-      // usarse: la lectura corta antes. Resetear lo vuelve a dejar sin probar.
-      resetKeychainProbe();
+      // Sin resetear nada a mano: el módulo detecta que `Bun.secrets` cambió de
+      // identidad e invalida solo el sondeo cacheado. Sin eso, donde no hay
+      // libsecret —CI headless— un intento anterior dejaba el keychain marcado
+      // como no disponible para todo el proceso y el doble de arriba nunca
+      // llegaba a usarse.
       expect(await loadProviderApiKey("legacy")).toBe("sk-from-keychain");
 
       // New writes are mirrored to the keychain as well, so a downgrade or a
@@ -119,10 +119,9 @@ describe("keychain compatibility", () => {
       await storeProviderApiKey("mirrored", "sk-mirrored");
       expect(keychain.get("provider:mirrored:api_key")).toBe("sk-mirrored");
     } finally {
+      // Restaurar el original vuelve a cambiar la identidad del objeto, así que
+      // el sondeo se invalida solo y no queda contaminado por el doble.
       (Bun as any).secrets = original;
-      // No dejar el sondeo contaminado con el resultado del doble.
-      const { resetKeychainProbe } = await import("../packages/core/src/storage/crypto");
-      resetKeychainProbe();
     }
   });
 });
