@@ -188,7 +188,7 @@ export async function compileContext(opts: {
 
   // [STEP-1] Load agent config
   log.info(`[context-compiler] [STEP-1] Loading agent config for id=${agentId}`)
-  let agent: ReturnType<typeof fromAgentDoc>
+  let agent: ReturnType<typeof fromAgentDoc> | undefined
   try {
     const agentsCol = await col<AgentDoc>("agents")
     const entry = await agentsCol.get(agentId)

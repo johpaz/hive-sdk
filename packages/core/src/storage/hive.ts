@@ -21,9 +21,15 @@ export function toIndexable(value: string | null | undefined): string {
   return value ?? NO_PARENT;
 }
 
-/** Decode a value stored via {@link toIndexable} back to its nullable form. */
-export function fromIndexable(value: string): string | null {
-  return value === NO_PARENT ? null : value;
+/**
+ * Decode a value stored via {@link toIndexable} back to its nullable form.
+ *
+ * Acepta `null`/`undefined` porque una fila puede no tener el campo —el que
+ * llama suele escribir `fromIndexable(doc.parent_id ?? null)`— y devolver `null`
+ * es la respuesta correcta, no un caso a evitar en cada llamada.
+ */
+export function fromIndexable(value: string | null | undefined): string | null {
+  return value === NO_PARENT || value == null ? null : value;
 }
 
 export async function col<T>(name: string) {

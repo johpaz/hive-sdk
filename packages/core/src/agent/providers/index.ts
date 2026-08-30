@@ -119,7 +119,7 @@ export class AgentRunner {
     let imageArtifacts: ModelResponse["imageArtifacts"]
     let lastAgentContent = ""
     let accumulatedAgentContent = ""  // Accumulate content from all agent chunks
-    let toolCalls: ModelResponse["toolCalls"] = []
+    let toolCalls: NonNullable<ModelResponse["toolCalls"]> = []
     let totalInputTokens = 0
     let totalOutputTokens = 0
 
