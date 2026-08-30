@@ -29,7 +29,7 @@ import type { MCPClientManager } from "../mcp/index.ts"
 import { syncToolCatalogToIndex, mcpToolFullName } from "./tool-selector.ts"
 import { syncSkillsToIndex, getMinimalSkills, selectSkills, getSkillByName, type SkillDescriptor } from "./skill-selector.ts"
 import { syncPlaybookToIndex, selectPlaybookRules } from "./playbook-selector.ts"
-import { getRecentMessages, getSummary, getScratchpad, toAPIMessages } from "./conversation-store.ts"
+import { getRecentMessages, getSummary, getScratchpad, toAPIMessages, inflateRecentImages } from "./conversation-store.ts"
 import { formatContext, estimateTokens } from "../utils/toon.ts"
 import { buildSystemPromptWithProjects } from "./prompt-builder.ts"
 import { createAllTools } from "../tools/index.ts"
@@ -518,7 +518,10 @@ export async function compileContext(opts: {
   // or — on a context-overflow retry that keeps only the LAST system message
   // (openai-compat-base.ts) — silently replaces the real prompt. The summary
   // lives in `systemPrompt` instead (see conversationSummarySection below).
-  const messages: LLMMessage[] = toAPIMessages(recentMessages)
+  // En el historial las imágenes son referencias, para no reenviarlas enteras en
+  // cada turno. Las de los últimos mensajes se vuelven a poner en línea: el
+  // modelo todavía puede necesitar mirarlas, y una referencia no se mira.
+  const messages: LLMMessage[] = await inflateRecentImages(toAPIMessages(recentMessages))
 
   // [STEP-10] STRATEGY 4: ISOLATE — Build context based on agent role
   log.info(`[context-compiler] [STEP-10] Building system prompt...`)
@@ -562,7 +565,7 @@ export async function compileContext(opts: {
     : Array.isArray(playbookInput)
       ? playbookInput.filter((part) => part.type === "text").map((part) => (part as any).text).join("\n")
       : String(playbookInput)
-  const playbookRules = (await selectPlaybookRules(playbookText)).filter((rule) => {
+  const playbookRules = (await selectPlaybookRules(playbookText, userId)).filter((rule) => {
     if (!rule.applicable_to || !rule.applicable_to.includes("agent:")) return true
     return isCatalogAgent ? rule.applicable_to.includes(`agent:${agent.id}`) : false
   })

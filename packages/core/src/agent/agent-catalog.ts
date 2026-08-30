@@ -285,6 +285,63 @@ export function createSeedCatalogAgents(now = Date.now()): AgentDoc[] {
 export const CATALOG_AGENT_IDS = CATALOG_PERSONAS.map((s) => s.id);
 
 /**
+ * Qué tools y skills necesita un subconjunto de agentes de catálogo.
+ *
+ * Devuelve la **unión**, no la lista de cada uno, y ahí está todo el asunto: las
+ * tools se comparten. `web_fetch` lo declaran `web_researcher` y
+ * `browser_operator`; `fs_*` lo declaran `workspace_file_operator` y
+ * `software_engineer`. Sembrar "sólo lo de este agente" dejaría a los demás sin
+ * capacidades que sí necesitan, y el fallo aparecería recién cuando el modelo
+ * descubra por BM25 una tool que no puede ejecutar.
+ *
+ * Los patrones se devuelven **sin expandir** a propósito: `expandToolAllowlist`
+ * necesita el registro vivo de tools, que este módulo no debe conocer. Quien
+ * siembre expande.
+ *
+ * `MINIMAL_TOOLS` no se incluye acá: son del coordinador, existan o no estos
+ * agentes, y quien siembra las añade siempre.
+ */
+export function requiredCapabilitiesFor(agentIds: string[]): {
+  toolPatterns: string[];
+  skills: string[];
+} {
+  const conocidos = new Set(CATALOG_AGENT_IDS);
+  const desconocidos = agentIds.filter((id) => !conocidos.has(id));
+  if (desconocidos.length > 0) {
+    throw new Error(`No existen en el catálogo: ${desconocidos.join(", ")}`);
+  }
+
+  const pedidos = new Set(agentIds);
+  const toolPatterns = new Set<string>();
+  const skills = new Set<string>();
+
+  for (const persona of CATALOG_PERSONAS) {
+    if (!pedidos.has(persona.id)) continue;
+    for (const t of persona.tools) toolPatterns.add(t);
+    for (const s of persona.skills) skills.add(s);
+  }
+
+  return { toolPatterns: [...toolPatterns], skills: [...skills] };
+}
+
+/** Las personas del catálogo, para que una UI pueda ofrecerlas al configurar. */
+export function listCatalogPersonas(): Array<{
+  id: string;
+  name: string;
+  description: string;
+  tools: string[];
+  skills: string[];
+}> {
+  return CATALOG_PERSONAS.map((p) => ({
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    tools: p.tools,
+    skills: p.skills,
+  }));
+}
+
+/**
  * Writes the coordinator's provider/model onto every other agent row, so the
  * whole hive is explicitly configured instead of relying on the runtime
  * parent-inheritance fallback in `resolveAgentModel()` (which leaves the rows

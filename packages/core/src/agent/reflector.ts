@@ -17,6 +17,7 @@ import { getHiveDb } from "../storage/hivedb.ts"
 import { loadConfig } from "../config/loader.ts"
 import type { HiveDB, ToolStats } from "@johpaz/hive-db"
 import type { TraceDoc, ReflectionDoc, CursorDoc } from "../storage/collections.ts"
+import { parseThreadId } from "./thread-id.ts"
 
 const log = logger.child("reflector")
 
@@ -51,25 +52,42 @@ export async function runReflector(): Promise<void> {
 
     log.info(`[reflector] Analyzing ${traces.length} traces...`)
 
+    // Las trazas se agrupan por usuario antes de analizarlas.
+    //
+    // Antes se analizaba el lote entero de una vez, así que una reflexión —y la
+    // regla de playbook que sale de ella— mezclaba lo aprendido de varias
+    // personas. En una instalación de un solo usuario da igual; en un host
+    // multi-inquilino significa que lo aprendido de un workspace se le aplica a
+    // otro. El usuario sale del `thread_id`, que ya lo lleva dentro.
+    const porUsuario = new Map<string, typeof traceEntries>()
+    for (const entry of traceEntries) {
+      const usuario = parseThreadId(entry.doc.thread_id)?.userId ?? ""
+      const grupo = porUsuario.get(usuario) ?? []
+      grupo.push(entry)
+      porUsuario.set(usuario, grupo)
+    }
+
     // G9: when enabled, per-tool insights use whole-history stats from HiveDB's
     // event log (toolStats) instead of counters built from just this batch, and
     // causal threads add root-cause/learning-proposal insights on top.
     const causalDb = loadConfig().causalLog?.enabled ? await getHiveDb() : null
-    const localInsights = await analyzeTracesLocally(traces, causalDb)
-    const causalInsights = await analyzeCausalThreads(traces, causalDb)
-    const insights = [...localInsights, ...causalInsights]
+    const reflectionsCol = await col<ReflectionDoc>("reflections")
+    let totalInsights = 0
 
-    if (insights.length === 0) {
-      log.debug("[reflector] No insights generated")
-    } else {
-      const traceIds = JSON.stringify(traceEntries.map(e => e.id))
-      const reflectionsCol = await col<ReflectionDoc>("reflections")
+    for (const [usuario, entradas] of porUsuario) {
+      const delGrupo = entradas.map(e => e.doc)
+      const localInsights = await analyzeTracesLocally(delGrupo, causalDb)
+      const causalInsights = await analyzeCausalThreads(delGrupo, causalDb)
+      const insights = [...localInsights, ...causalInsights]
+      if (insights.length === 0) continue
 
+      const traceIds = JSON.stringify(entradas.map(e => e.id))
       for (const insight of insights) {
         const id = await nextId("reflections")
         await reflectionsCol.put(id, {
           id,
           trace_ids: traceIds,
+          user_id: usuario,
           insight_type: insight.type,
           description: insight.description,
           affected_tools: insight.affectedTools ? JSON.stringify(insight.affectedTools) : null,
@@ -78,8 +96,13 @@ export async function runReflector(): Promise<void> {
           created_at: Date.now(),
         })
       }
+      totalInsights += insights.length
+    }
 
-      log.info(`[reflector] Generated ${insights.length} insights`)
+    if (totalInsights === 0) {
+      log.debug("[reflector] No insights generated")
+    } else {
+      log.info(`[reflector] Generated ${totalInsights} insights across ${porUsuario.size} user(s)`)
     }
 
     // Advance the cursor regardless of whether insights were generated —

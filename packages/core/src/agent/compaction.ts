@@ -29,6 +29,8 @@ import { estimateTokens } from "../utils/toon.ts"
 import { callLLM, resolveProviderConfig, getDefaultLLM, type ContentPart } from "./llm-client.ts"
 import { col, fromIndexable } from "../storage/hive.ts"
 import type { AgentDoc, ModelDoc } from "../storage/collections.ts"
+import { loadConfig } from "../config/loader.ts"
+import { runBeforeCompaction } from "../hooks/index.ts"
 
 const log = logger.child("compaction")
 
@@ -51,8 +53,15 @@ export async function maybeCompact(
   try {
     const totalTokens = await getTotalTokens(threadId)
 
-    // Use model's context window if available, otherwise use default
+    // Orden de precedencia: lo que el usuario configuró gana sobre lo que se
+    // deduce del modelo, y eso gana sobre la constante.
+    //
+    // `agent.context.compactionThreshold` estaba en el esquema de configuración
+    // y **no lo leía nadie**: alguien podía ajustarlo y no pasaba nada. Una
+    // opción que no hace nada es peor que no tenerla, porque el usuario cree
+    // que cambió algo.
     let effectiveThreshold = COMPACT_TOKEN_THRESHOLD
+    const configurado = loadConfig().agent?.context?.compactionThreshold
     try {
       const agentsCol = await col<AgentDoc>("agents")
       const coordinators = await agentsCol.findBy("role", "coordinator", { limit: 1 })
@@ -69,7 +78,17 @@ export async function maybeCompact(
       }
     } catch { /* use default threshold */ }
 
+    if (configurado && configurado > 0) effectiveThreshold = configurado
+
     if (totalTokens < effectiveThreshold) return
+
+    // Avisar antes de comprimir: es la última oportunidad de que alguien
+    // conserve algo del historial que está por resumirse.
+    await runBeforeCompaction({
+      threadId,
+      messageCount: await getMessageCount(threadId),
+      totalTokens,
+    }).catch(() => {})
 
     const summary = await getSummary(threadId)
     const totalMessages = await getMessageCount(threadId)

@@ -99,20 +99,73 @@ import {
 } from "@johpaz/hive-sdk";
 ```
 
-#### Browser automation (agent-browser)
+#### Browser automation (`Bun.WebView`)
 
-Las herramientas `browser_*` usan [`agent-browser`](https://www.npmjs.com/package/agent-browser), un CLI Rust que gestiona Chrome/Chromium internamente vía CDP. En el primer uso se instala automáticamente en `~/.hive/agent-browser` y se descarga Chrome si es necesario.
+Las herramientas `browser_*` hablan con `BrowserBackend`, que hoy tiene una sola
+implementación: `Bun.WebView` in-process sobre un Chromium del sistema. No se
+instala ni se descarga nada — sólo hace falta un Chromium (o `BUN_CHROME_PATH`)
+y **Bun ≥ 1.4**, porque es el que lanza el navegador con `--headless` y permite
+correr en un servidor sin pantalla.
+
+> Antes existía un segundo backend por CLI (`agent-browser`). Se retiró: medido
+> en Bun 1.4 el WebView sí corre headless, que era la única razón para
+> mantenerlo, y lo que quedaba era su costo —~40 ms de `Bun.spawn` por operación
+> contra ~0,3 ms, ~88 MB con su propia copia de Chrome, y un
+> `bun add agent-browser@latest` ejecutado **en el entorno del consumidor** al
+> primer uso. La clave de configuración `tools.browser.backend` sobrevive:
+> `"agent-browser"` se acepta, avisa una vez y usa el WebView.
+
+Las cookies se guardan y restauran a mano (`tools/web/browser-session.ts`)
+porque el perfil de Chrome que abre Bun es efímero: sin eso, cada reinicio
+empezaría sin sesiones iniciadas. Se controla con `tools.browser.persistSession`.
 
 ```typescript
-import { initializeBrowserService, getBrowserService } from "@johpaz/hive-sdk";
+import { initializeBrowserService, getBrowserService } from "@johpaz/hive-sdk/tools";
 
 const browserService = initializeBrowserService(config);
-await browserService.start();
-
 const view = await browserService.getView();
 await view.navigate("https://example.com");
 const snapshot = await view.snapshot({ compact: true, depth: 3 });
 ```
+
+#### API del backend de navegador
+
+Todo esto sale de `@johpaz/hive-sdk/tools`.
+
+| | |
+|---|---|
+| `initializeBrowserService(config)` | Arranca el servicio. Las browser tools están en el catálogo desde el seed pero no operan hasta que alguien lo levanta. |
+| `getBrowserService()` | La instancia viva, o `null`. |
+| `shutdownBrowser()` | Cierra la vista y libera el proceso del navegador. |
+| `isWebViewSupported()` | Si este entorno puede abrir un navegador. **Ojo**: comprueba que exista un binario de Chromium, no que arranque — en un contenedor sin sandbox el binario está y Chromium muere igual. |
+| `findChrome()` | Dónde está el Chromium que se va a usar. |
+| `resolveBackendKind(pref)` | Traduce `tools.browser.backend` a un backend real. Acepta `"agent-browser"` por compatibilidad: avisa una vez y devuelve WebView. |
+| `resolveWebViewEngine(pref)` | `chrome` (con CDP, headless real) o el WebKit del sistema en macOS, que no tiene CDP y por eso ofrece menos. |
+| `browserInstallHint()` | Qué decirle a alguien que no tiene navegador instalado. |
+
+Helpers sobre una vista abierta: `waitForSelector` · `waitForCondition` ·
+`screenshotElement` · `clicEnPunto` · `hoverEnPunto` — los dos últimos operan por
+coordenadas, que es lo que usa `computer_use_task` cuando no hay un selector CSS
+estable (canvas, UIs generadas, visores embebidos).
+
+`reducirCaptura` y `podarCapturas` recortan las capturas antes de que lleguen al
+modelo. Una captura de pantalla completa son cientos de miles de tokens si viaja
+en crudo; ver también `@johpaz/hive-sdk/images`, que hace lo propio con las
+imágenes que manda el usuario.
+
+#### Sesión del navegador
+
+El perfil de Chrome que abre Bun es **efímero** —su ruta lleva un hash que cambia
+entre procesos— así que las cookies se guardan y restauran a mano. Sin esto, cada
+reinicio empezaría sin ninguna sesión iniciada y el agente tendría que volver a
+autenticarse en todos lados.
+
+| | |
+|---|---|
+| `sessionPersistenceEnabled()` | Si está activo (`tools.browser.persistSession`, encendido por defecto). |
+| `storeCookies(cookies)` / `loadStoredCookies()` | Guardar y restaurar. Van cifradas, como cualquier otro secreto. |
+| `normalizeCookies(raw)` | Normaliza lo que devuelve CDP a una forma estable. |
+| `clearStoredSession()` | Cerrar la sesión: olvida los logins guardados. |
 
 #### api_request
 
@@ -443,4 +496,4 @@ const hiveDir = getHiveDir();  // ~/.hive o HIVE_DATA_DIR
 
 ---
 
-*Documentación Hive SDK v0.0.17*
+*Documentación Hive SDK — ver `version` en package.json*

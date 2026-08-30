@@ -296,4 +296,16 @@ const canvas = new CanvasManager();
 
 ---
 
-*Documentación Hive SDK v0.0.17*
+## Canvas
+
+El estado visual de un enjambre corriendo, para quien quiera pintarlo.
+
+| | |
+|---|---|
+| `getCanvasSnapshot()` | El estado completo, para arrancar una vista. |
+| `subscribeCanvas(fn)` / `unsubscribeCanvas(fn)` | Cambios en vivo. |
+| `emitCanvas(evento, datos)` | Publicar un cambio. |
+| `emitDelegationStarted` / `emitDelegationFinished` | Una delegación empieza y termina — es lo que dibuja las aristas entre agentes. |
+| `emitWorkEvent` | Un hito de trabajo dentro de un nodo. |
+
+*Documentación Hive SDK — ver `version` en package.json*

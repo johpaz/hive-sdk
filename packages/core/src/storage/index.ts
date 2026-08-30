@@ -34,7 +34,7 @@ export type * from "./collections.ts";
 export { catalogModelKey, wireModelId, isResellerProvider } from "./model-id.ts";
 
 // ─── Seed del catálogo ───────────────────────────────────────────────────────
-export type { SeedData } from "./seed.ts";
+export type { SeedData, SeedOptions, SpecialistSeedMode } from "./seed.ts";
 export {
   SEED_DATA,
   seedAllData,

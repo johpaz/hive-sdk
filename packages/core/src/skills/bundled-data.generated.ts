@@ -460,21 +460,31 @@ Para gestionar tareas programadas (cron jobs): crear, listar, actualizar, pausar
 | \`cron_expression\` | string | Expresión cron (solo para recurring) |
 | \`fire_at\` | string | Datetime ISO (solo para one_shot) |
 | \`channel\` | string | Canal de notificación |
-| \`start_at\` | string | Inicio de ventana opcional (Croner startAt) |
-| \`stop_at\` | string | Fin de ventana opcional (Croner stopAt) |
+| \`start_at\` | string | Inicio de ventana opcional |
+| \`stop_at\` | string | Fin de ventana opcional |
 | \`dom_and_dow\` | number | 0=OR (default), 1=AND (día mes + día semana) |
+| \`max_runs\` | number | Deja de correr después de N corridas ("recordámelo 3 veces") |
+| \`payload\` | object | Datos que recibe el agente al ejecutarse |
+| \`agent_id\` | string | Agente concreto que debe ejecutarla. Si se omite, decide el coordinador |
+| \`tool_name\` | string | Ejecutar una tool directamente, sin pasar por un agente |
+
+> **La zona horaria no se pasa acá**: sale del perfil del usuario. No la
+> inventes ni la pidas — si el usuario dice "a las 9", son las 9 de su reloj.
 
 ## Cron Expression Format
 
 \`\`\`
-* * * * *
-│ │ │ │ │
-│ │ │ │ └── Día semana (0-6, 0=Domingo)
-│ │ │ └──── Mes (1-12)
-│ │ └────── Día del mes (1-31)
-│ └──────── Hora (0-23)
-└────────── Minuto (0-59)
+┌───────── segundos (0-59)  ← opcional, sólo si hacen falta
+│ ┌─────── minuto (0-59)
+│ │ ┌───── hora (0-23)
+│ │ │ ┌─── día del mes (1-31)
+│ │ │ │ ┌─ mes (1-12 o JAN-DEC)
+│ │ │ │ │ ┌ día de semana (0-7 o SUN-SAT, 0 y 7 = domingo)
+* * * * * *
 \`\`\`
+
+Cinco campos, o seis poniendo los segundos adelante. Acepta \`*\`, listas \`1,15\`,
+rangos \`1-5\`, pasos \`*/2\`, y nombres de mes y de día.
 
 ## Ejemplos Comunes
 
@@ -834,7 +844,7 @@ Esta skill se activa cuando el usuario necesita:
     description: `Automate web workflows with navigation, clicks, form filling, and visual verification`,
     category: "web",
     version: "1.0.0",
-    tools: ["browser_navigate","browser_click","browser_type","browser_screenshot"],
+    tools: ["browser_navigate","browser_wait","browser_click","browser_type","browser_screenshot","browser_script","computer_use_task"],
     triggers: ["automatizá el navegador","automate browser","completá el formulario","fill form","hacé clic en","click on","iniciá sesión","login","registrate","sign up","interactuá con la web","interact with website","flujo web","web workflow"],
     body: `
 # Browser Automate Skill
@@ -879,7 +889,7 @@ Esta skill se activa para automatizar flujos de interacción con aplicaciones we
     description: `Navigate to web pages and capture rendered content including screenshots for dynamic sites`,
     category: "web",
     version: "1.0.0",
-    tools: ["browser_navigate","browser_screenshot","web_fetch"],
+    tools: ["browser_navigate","browser_screenshot","browser_extract","browser_wait"],
     triggers: ["capturá el contenido","scrape content","obtené la página renderizada","get rendered page","sitios dinámicos","dynamic sites","web con javascript","javascript websites","tomá screenshot y contenido","screenshot and content"],
     body: `
 # Browser Scrape Skill
@@ -894,7 +904,12 @@ Esta skill se activa para sitios web dinámicos que requieren JavaScript renderi
 |------|----------|---------------|
 | \`browser_navigate\` | Navega y renderiza página completa | Sitios con JavaScript/SPA |
 | \`browser_screenshot\` | Captura estado visual | Evidencia de contenido renderizado |
-| \`web_fetch\` | Extrae texto como markdown | Contenido textual de página renderizada |
+| \`browser_extract\` | Extrae del DOM ya renderizado | Contenido textual o estructurado del SPA |
+| \`browser_wait\` | Espera a que aparezca un selector | Antes de extraer, en páginas que cargan por partes |
+
+> **No usar \`web_fetch\` acá.** Vuelve a pedir la URL al servidor y recibe el HTML
+> sin JavaScript ejecutado — en un SPA, una cáscara vacía. Para eso está
+> \`browser_extract\`, que lee el DOM que el navegador ya renderizó.
 
 ## Workflow
 
@@ -1430,6 +1445,89 @@ Para crear flujos interactivos multi-paso usando A2UI v0.9. Usar cuando se neces
 - Agregar validación con \`checks\` en TextField
 - Mantener el estado del flujo en el data model (\`/data/step\`, \`/data/serviceType\`, etc.)
 - Eliminar surfaces con \`a2ui_delete_surface\` al completar o cancelar
+`,
+  },
+  {
+    name: "image_editor",
+    description: `Convertir, redimensionar y rotar imágenes con Bun.Image. Inspeccionar dimensiones y formato sin cargar la imagen al contexto.`,
+    category: "images",
+    version: "1.0.0",
+    tools: ["image_metadata","image_transform","artifact_inspect"],
+    triggers: ["convertí la imagen","convert image","redimensioná la imagen","resize image","achicá la foto","make it smaller","pasala a webp","convert to webp","rotá la imagen","rotate image","qué tamaño tiene","image dimensions","comprimí la imagen","compress image","hacé una miniatura","make a thumbnail"],
+    body: `
+# Image Editor Skill
+
+## Cuándo se Activa
+
+Cuando el usuario quiere **cambiar** una imagen (formato, tamaño, rotación) o
+**saber** sus características. Corre sobre \`Bun.Image\`, nativo del runtime.
+
+## Herramientas Disponibles
+
+| Tool | Qué hace | Cuándo usarla |
+|------|----------|---------------|
+| \`image_metadata\` | Ancho, alto y formato | Siempre antes de transformar |
+| \`image_transform\` | Convierte, redimensiona, rota | El trabajo en sí |
+| \`artifact_inspect\` | Tipo MIME, integridad, tamaño | Cuando no está claro si el artefacto es una imagen |
+
+## Lo Que Hay Que Entender
+
+**Todo pasa por artefactos.** Una imagen no viaja en el mensaje: vive como
+artefacto y se la nombra por su \`artifact_id\`. Es lo que evita que una foto de 4
+MB entre a la ventana de contexto y se reenvíe en cada turno de la conversación.
+
+**Transformar no destruye.** \`image_transform\` devuelve un artefacto **nuevo**.
+El original sigue disponible, así que se puede probar un tamaño, ver que no
+gustó y probar otro sin haber perdido nada.
+
+**La proporción se pierde en silencio.** Si se pasan \`width\` y \`height\` juntos,
+la imagen se estira sin avisar. Pasando uno solo, el otro se calcula.
+
+## Formatos
+
+\`jpeg\` · \`png\` · \`webp\` · \`avif\` · \`heic\`
+
+Ante la duda, **webp**: pesa bastante menos que jpeg y png a calidad comparable,
+y lo entienden todos los navegadores actuales.
+`,
+  },
+  {
+    name: "artifact_reader",
+    description: `Leer archivos grandes que llegaron como artifact_ref: por tramos o buscando dentro, sin volcarlos enteros al contexto.`,
+    category: "artifacts",
+    version: "1.0.0",
+    tools: ["artifact_read","artifact_inspect"],
+    triggers: ["leé el archivo adjunto","read the attachment","qué dice el documento","what does the document say","buscá en el archivo","search in the file","artifact_ref","el resultado quedó truncado","the result was truncated","seguí leyendo","keep reading"],
+    body: `
+# Artifact Reader Skill
+
+## Cuándo se Activa
+
+Cuando aparece un **\`artifact_ref\`**: un archivo, un adjunto o el resultado de
+una tool que era demasiado grande para entrar en el contexto.
+
+## Herramientas Disponibles
+
+| Tool | Qué hace | Cuándo usarla |
+|------|----------|---------------|
+| \`artifact_inspect\` | Tamaño, tipo MIME, integridad | Antes de leer, para decidir cómo |
+| \`artifact_read\` | Contenido, por tramos o buscando | Para leer de verdad |
+
+## Lo Que Hay Que Entender
+
+**Un \`artifact_ref\` no es un error.** Es el mecanismo por el que un archivo
+grande queda fuera de la ventana de contexto y a la vez disponible. El archivo
+está entero; lo que cambia es que se lee a pedido en vez de entrar completo en
+cada turno de la conversación.
+
+**Buscar cuesta mucho menos que paginar.** \`artifact_read\` con \`search\` recorre
+el archivo del lado del servidor y devuelve extractos de cada coincidencia con
+su contexto alrededor. Paginar el mismo archivo con \`offset\`/\`limit\` gasta un
+turno por tramo y mete en el contexto un montón de texto que no hacía falta.
+Cuando se sabe qué se busca, se busca.
+
+**Continuar es explícito.** Cada lectura devuelve \`next_offset\`. Ese es el valor
+que se pasa para seguir — no se calcula a mano.
 `,
   },
 ];

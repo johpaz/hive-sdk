@@ -13,7 +13,7 @@
 
 import { getHiveDb, getOpenHiveDb } from "./hivedb.ts";
 import { col } from "./hive.ts";
-import { seedAllData } from "./seed.ts";
+import { seedAllData, type SeedOptions } from "./seed.ts";
 import { ensureSecretsBackend } from "./crypto.ts";
 import { ensureLegacyThread } from "../agent/thread-store.ts";
 
@@ -106,6 +106,10 @@ const INDEXES: IndexSpec[] = [
   { collection: "conversationThreads", field: "user_id" },
   { collection: "conversationThreads", field: "channel" },
   { collection: "conversationThreads", field: "archived" },
+  { collection: "swarms", field: "enabled" },
+  { collection: "apiEndpoints", field: "enabled" },
+  { collection: "memory", field: "user_id" },
+  { collection: "playbook", field: "user_id" },
 ];
 
 async function ensureIndexes(): Promise<void> {
@@ -123,8 +127,8 @@ async function ensureIndexes(): Promise<void> {
  * user-toggleable fields (enabled/active) and doesn't touch `users`, so it's
  * safe to call unconditionally before any onboarding has happened.
  */
-async function ensureSeedData(): Promise<void> {
-  await seedAllData();
+async function ensureSeedData(opts?: SeedOptions): Promise<void> {
+  await seedAllData(opts);
 }
 
 // Bootstrap state belongs to a specific database instance. A boolean that
@@ -138,6 +142,69 @@ let bootstrappedDb: Awaited<ReturnType<typeof getHiveDb>> | null = null;
  * mensaje— como una conversación más de la web, para que siga siendo legible desde
  * la lista. Idempotente: no hace nada si ya está registrada o si no hay historial.
  */
+/**
+ * Reasigna las memorias anteriores al aislamiento por usuario.
+ *
+ * Antes la colección era global: `id` era el título y no había `user_id`. Al
+ * introducir el aislamiento esas filas quedarían invisibles —nadie las
+ * encontraría, porque toda lectura filtra por dueño— así que se les asigna el
+ * usuario existente y se re-clavean a `${userId}:${title}`.
+ *
+ * Idempotente: una fila que ya tiene `user_id` no se toca. Si todavía no hay
+ * usuario (onboarding sin terminar) se deja para el próximo arranque, cuando lo
+ * haya, en vez de asignarlas a `""` y tener que deshacerlo.
+ */
+async function migrateLegacyMemories(): Promise<void> {
+  try {
+    const memories = await col<{ id: string; user_id?: string; title: string }>("memory");
+    const legacy = (await memories.scan({})).filter((e) => !e.doc.user_id);
+    if (legacy.length === 0) return;
+
+    const users = await col<{ id: string }>("users");
+    const primero = (await users.scan({ limit: 1 }))[0];
+    if (!primero) return;
+
+    for (const entry of legacy) {
+      const nuevoId = `${primero.id}:${entry.doc.title}`;
+      await memories.put(nuevoId, { ...entry.doc, id: nuevoId, user_id: primero.id });
+      if (nuevoId !== entry.id) await memories.delete(entry.id).catch(() => {});
+    }
+  } catch {
+    // La memoria no es crítica para arrancar: si falla, se reintenta al próximo boot.
+  }
+}
+
+/**
+ * Reglas del playbook anteriores a `user_id`.
+ *
+ * Se aprendieron cuando la instalación era de un solo usuario, así que son de
+ * él. Dejarlas sin dueño las volvería globales y se las inyectaría a cualquier
+ * usuario que se dé de alta después, que es exactamente el aislamiento que este
+ * campo viene a cerrar. Las sembradas no pasan por acá: `seedAllData()` les
+ * pone `user_id: ""` en cada arranque.
+ */
+async function migrateLegacyPlaybook(): Promise<void> {
+  try {
+    const playbook = await col<{ id: string; user_id?: string }>("playbook");
+    const legacy = (await playbook.scan({})).filter((e) => e.doc.user_id === undefined);
+    if (legacy.length === 0) return;
+
+    const users = await col<{ id: string }>("users");
+    const primero = (await users.scan({ limit: 1 }))[0];
+    if (!primero) return;
+
+    for (const entry of legacy) {
+      await playbook.put(
+        entry.id,
+        { ...entry.doc, user_id: primero.id },
+        { expectedVersion: entry.version },
+      );
+    }
+  } catch {
+    // El playbook no es crítico para arrancar: se reintenta al próximo boot.
+  }
+}
+
 async function ensureLegacyThreads(): Promise<void> {
   try {
     const users = await col<{ id: string }>("users");
@@ -154,16 +221,18 @@ async function ensureLegacyThreads(): Promise<void> {
  * static catalogs, and records the schema version. Safe to call on every
  * gateway boot.
  */
-export async function ensureHiveDb(): Promise<void> {
+export async function ensureHiveDb(opts?: SeedOptions): Promise<void> {
   const db = await getHiveDb();
   await ensureIndexes();
   // Mint the master key before anything can save an API key, so a fresh
   // install is durable from the first keystroke rather than after a restart
   // has already dropped the secret.
   ensureSecretsBackend();
-  await ensureSeedData();
+  await ensureSeedData(opts);
 
   await ensureLegacyThreads();
+  await migrateLegacyMemories();
+  await migrateLegacyPlaybook();
 
   const meta = await col<{ value: number }>("meta");
   const existing = await meta.get("schemaVersion");

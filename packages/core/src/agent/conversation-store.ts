@@ -111,6 +111,66 @@ export function getRecentMessageCount(windowMs = 5 * 60_000): number {
   return recentMessageTimestamps.length
 }
 
+/** El threadId es `${userId}/${canal}/${peer}`, así que el dueño ya está ahí. */
+async function resolveOwnerId(threadId: string): Promise<string> {
+  const { parseThreadId } = await import("./thread-id.ts")
+  return parseThreadId(threadId)?.userId ?? threadId
+}
+
+/**
+ * Cuánto ocupa una imagen en la ventana de contexto.
+ *
+ * Los proveedores cobran por área, no por bytes: la fórmula es la de los
+ * modelos de visión más comunes (~750 px² por token). Es una estimación, pero
+ * cualquier estimación es infinitamente mejor que la anterior, que era cero: la
+ * compactación creía que un hilo con diez fotos ocupaba lo que ocupa su texto,
+ * y no se disparaba hasta que el proveedor rechazaba el turno.
+ */
+export function estimateImageTokens(width?: number | null, height?: number | null): number {
+  if (!width || !height) return 1_500;   // desconocida: el promedio de una foto
+  return Math.ceil((width * height) / 750);
+}
+
+/**
+ * Cambia las imágenes en línea por referencias a un artefacto.
+ *
+ * El base64 se guardaba entero en `content_multimodal` y `toAPIMessages` lo
+ * devolvía al modelo **en cada turno siguiente**: cinco fotos en una
+ * conversación eran cinco fotos reenviadas una y otra vez. Guardar el archivo y
+ * dejar una referencia corta ese crecimiento de raíz.
+ *
+ * La imagen no se pierde: `inflateRecentImages` la vuelve a poner en línea para
+ * los últimos turnos, que es donde el modelo todavía puede necesitar mirarla.
+ */
+async function imagesToRefs(content: ContentPart[], userId: string): Promise<ContentPart[]> {
+  const { createArtifact } = await import("../artifacts/store.ts")
+  const out: ContentPart[] = []
+
+  for (const part of content) {
+    if (part.type !== "image_base64") { out.push(part); continue }
+    try {
+      const bytes = Uint8Array.from(Buffer.from((part as { base64: string }).base64, "base64"))
+      const mimeType = (part as { mimeType?: string }).mimeType || "image/jpeg"
+      // Si no se puede medir, no es una imagen. Guardarla igual crearía un
+      // artefacto de tipo "image" con basura adentro, que aparecería en la
+      // galería del usuario; es mejor dejarla como venía.
+      const { measureImage } = await import("../images/index.ts")
+      const meta = await measureImage(bytes)
+
+      const art = await createArtifact({
+        bytes, mimeType, kind: "image", userId,
+        width: meta.width, height: meta.height, expiresAt: null,
+      })
+      out.push({ type: "artifact_ref", artifact_id: art.id, mime_type: mimeType, width: meta.width, height: meta.height } as unknown as ContentPart)
+    } catch {
+      // No es una imagen medible, o no se pudo guardar: viaja como venía.
+      // Perderla sería peor que no optimizarla.
+      out.push(part)
+    }
+  }
+  return out
+}
+
 export async function addMessage(
   threadId: string,
   role: StoredMessage["role"],
@@ -121,6 +181,8 @@ export async function addMessage(
     tool_call_id?: string
     reasoning_content?: string
     source?: MessageSource
+    /** Dueño de los artefactos que se creen para este mensaje (imágenes). */
+    userId?: string
   }
 ): Promise<number> {
   // Handle multimodal content by extracting text for the content column
@@ -130,7 +192,12 @@ export async function addMessage(
       ? content.filter(p => p.type === "text").map(p => (p as any).text).join("\n")
       : String(content)
 
-  const content_multimodal = Array.isArray(content) ? JSON.stringify(content) : null
+  // Las imágenes se guardan como archivo y en el historial queda una
+  // referencia: el base64 entero se reenviaba al modelo en cada turno.
+  const partes = Array.isArray(content)
+    ? await imagesToRefs(content, opts?.userId ?? (await resolveOwnerId(threadId)))
+    : null
+  const content_multimodal = partes ? JSON.stringify(partes) : null
   const tool_calls_json = opts?.tool_calls ? JSON.stringify(opts.tool_calls) : null
 
   const paddedSeq = await nextId(`conversations:${threadId}`)
@@ -150,7 +217,19 @@ export async function addMessage(
     reasoning_content: opts?.reasoning_content ?? null,
     source: opts?.source ?? "message",
     // Estimate tokens: content + tool_calls JSON
-    token_count: Math.max(1, estimateTokens(textContent) + estimateTokens(tool_calls_json ?? "")),
+    // Las imágenes cuentan: antes sumaban cero y la compactación creía que un
+    // hilo lleno de fotos ocupaba lo que ocupa su texto.
+    token_count: Math.max(
+      1,
+      estimateTokens(textContent) +
+      estimateTokens(tool_calls_json ?? "") +
+      (partes ?? []).reduce((n, p) => {
+        const q = p as { type: string; width?: number | null; height?: number | null }
+        return q.type === "artifact_ref" || q.type === "image_base64" || q.type === "image_url"
+          ? n + estimateImageTokens(q.width, q.height)
+          : n
+      }, 0),
+    ),
     created_at: now,
     updated_at: now,
   }, { expectedVersion: 0 })
@@ -251,6 +330,61 @@ export async function getMessagesAfter(threadId: string, afterId: number): Promi
 }
 
 // ─── Convert stored messages → LLMMessage array ───────────────────────────────
+
+/**
+ * Cuántos mensajes del final conservan sus imágenes en línea.
+ *
+ * Mismo criterio que `clearOldToolResults` (compaction.ts), que ya poda
+ * resultados viejos y deja intactos los recientes. Es el compromiso: el modelo
+ * puede volver a mirar una imagen de hace un rato —"¿qué decía la factura?"—
+ * sin que una conversación larga arrastre todas las fotos para siempre.
+ */
+export const KEEP_IMAGES_LAST_N = 6
+
+/**
+ * Vuelve a poner en línea las imágenes de los últimos mensajes.
+ *
+ * En el historial las imágenes son referencias (ver `imagesToRefs`), que no
+ * ocupan contexto pero tampoco se pueden mirar: un modelo de visión no ve una
+ * foto desde un id. Para los últimos `keepLastN` mensajes se leen del disco y
+ * se devuelven como base64; los anteriores quedan como referencia, con sus
+ * dimensiones, para que el modelo sepa que hubo una imagen y cuál.
+ */
+export async function inflateRecentImages(
+  messages: LLMMessage[],
+  keepLastN = KEEP_IMAGES_LAST_N,
+): Promise<LLMMessage[]> {
+  const desde = Math.max(0, messages.length - keepLastN)
+  const tieneRefs = messages.slice(desde).some((m) =>
+    Array.isArray(m.content) && m.content.some((p) => (p as { type?: string }).type === "artifact_ref"))
+  if (!tieneRefs) return messages
+
+  const { readArtifactBytes } = await import("../artifacts/store.ts")
+
+  return Promise.all(messages.map(async (msg, i) => {
+    if (i < desde || !Array.isArray(msg.content)) return msg
+
+    const partes = await Promise.all(msg.content.map(async (part) => {
+      const p = part as { type: string; artifact_id?: string; mime_type?: string }
+      if (p.type !== "artifact_ref" || !p.artifact_id) return part
+      if (!String(p.mime_type ?? "").startsWith("image/")) return part
+
+      try {
+        const datos = await readArtifactBytes(p.artifact_id)
+        if (!datos) return part   // caducó o se borró: queda la referencia
+        return {
+          type: "image_base64",
+          base64: Buffer.from(datos.bytes).toString("base64"),
+          mimeType: datos.mimeType,
+        } as unknown as ContentPart
+      } catch {
+        return part
+      }
+    }))
+
+    return { ...msg, content: partes }
+  }))
+}
 
 export function toAPIMessages(rows: StoredMessage[]): LLMMessage[] {
   return rows.map((r) => {

@@ -357,4 +357,4 @@ bun test
 
 ---
 
-*Documentación Hive SDK v0.0.17*
+*Documentación Hive SDK — ver `version` en package.json*

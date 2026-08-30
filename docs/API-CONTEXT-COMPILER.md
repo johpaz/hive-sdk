@@ -142,8 +142,9 @@ import { EthicsGuard } from "@johpaz/hive-sdk";
 
 const guard = new EthicsGuard();
 
-const rules = await guard.getRules();                     // todas las activas
+const rules = await guard.getRules();                     // sólo las globales
 const rulesForRole = await guard.getRules("coordinator"); // filtra por applicable_to
+const rulesForUser = await guard.getRules(undefined, userId); // globales + las de ese usuario
 
 const prompt = guard.injectIntoPrompt("Eres un asistente.", rules);
 
@@ -203,6 +204,41 @@ await runReflector();
 // Curar insights en reglas del playbook
 await runCurator();
 ```
+
+### A quién se le aplica lo aprendido
+
+Una regla del playbook se inyecta en el system prompt de cada turno, así que
+quién la ve importa tanto como qué dice. `PlaybookDoc.user_id` y
+`ReflectionDoc.user_id` marcan de quién salió:
+
+| `user_id` | Origen | Quién la ve |
+|---|---|---|
+| `""` | Sembrada con el producto (`INITIAL_PLAYBOOK_RULES`) | Todos |
+| `"user-ana"` | Aprendida de las trazas de esa persona | Sólo ella |
+
+El reflector agrupa el lote de trazas por usuario antes de analizarlo —lo saca
+del `thread_id`, que es `${userId}/${channel}/${peerId}`— y emite una reflexión
+por grupo. El curador propaga ese dueño a la regla, y deduplica **dentro** del
+usuario: la misma observación en dos personas son dos reglas, no una reforzada
+al doble.
+
+Las tres puertas de lectura filtran igual (global + propio):
+
+```typescript
+await selectPlaybookRules(texto, userId)          // inyección en el prompt
+await guard.getRules(undefined, userId)           // EthicsGuard
+// search_knowledge toma el usuario de config.configurable.user_id
+```
+
+`selectPlaybookRules` pide un pozo de candidatos más ancho que el que devuelve,
+porque el índice BM25 es único para todo el proceso: filtrando después de un
+`k` justo, un usuario con pocas reglas se quedaría sin ninguna cuando las mejor
+puntuadas son de otro.
+
+> **Migración.** Las reglas anteriores a este campo se aprendieron cuando la
+> instalación era de un solo usuario: `ensureHiveDb()` se las asigna al primer
+> usuario de la base, no las deja globales. Las sembradas son la excepción —
+> `seedAllData()` les fija `user_id: ""` en cada arranque.
 
 ---
 

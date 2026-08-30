@@ -201,7 +201,13 @@ async function processReflection(
 
   // Check if a similar rule already exists (fuzzy check by first 60 chars)
   const prefix = reflection.description.substring(0, 60)
-  const existing = allPlaybook.find(e => e.doc.active && e.doc.rule.startsWith(prefix))
+  // La deduplicación también va por usuario: si dos personas producen la misma
+  // observación, son dos reglas. Buscando sólo por texto, lo aprendido de la
+  // segunda reforzaría la regla de la primera y la haría pesar más en un
+  // playbook que no es suyo.
+  const existing = allPlaybook.find(
+    e => e.doc.active && e.doc.user_id === reflection.user_id && e.doc.rule.startsWith(prefix)
+  )
 
   if (existing) {
     // Reinforce existing rule
@@ -216,6 +222,7 @@ async function processReflection(
     id,
     rule: reflection.description,
     category,
+    user_id: reflection.user_id,
     applicable_to: applicableTo,
     helpful_count: 1,
     harmful_count: 0,
@@ -224,7 +231,7 @@ async function processReflection(
     created_at: now,
     updated_at: now,
   }, { expectedVersion: 0 })
-  allPlaybook.push({ id, version: 1, doc: { id, rule: reflection.description, category, applicable_to: applicableTo, helpful_count: 1, harmful_count: 0, active: true, source_reflection_id: toIndexable(reflection.id), created_at: now, updated_at: now } })
+  allPlaybook.push({ id, version: 1, doc: { id, rule: reflection.description, category, user_id: reflection.user_id, applicable_to: applicableTo, helpful_count: 1, harmful_count: 0, active: true, source_reflection_id: toIndexable(reflection.id), created_at: now, updated_at: now } })
 }
 
 function mapInsightTypeToCategory(
@@ -248,12 +255,13 @@ async function addOrUpdateRule(
   opts: {
     rule: string
     category: string
+    user_id: string
     applicable_to: string | null
     sourceReflectionId: string | null
   }
 ): Promise<void> {
   const prefix = opts.rule.substring(0, 60)
-  const existing = allPlaybook.find(e => e.doc.rule.startsWith(prefix))
+  const existing = allPlaybook.find(e => e.doc.user_id === opts.user_id && e.doc.rule.startsWith(prefix))
 
   if (existing) {
     await playbookCol.put(existing.id, { ...existing.doc, helpful_count: existing.doc.helpful_count + 1, updated_at: Date.now() }, { expectedVersion: existing.version })
@@ -264,6 +272,7 @@ async function addOrUpdateRule(
       id,
       rule: opts.rule,
       category: opts.category as PlaybookDoc["category"],
+      user_id: opts.user_id,
       applicable_to: opts.applicable_to,
       helpful_count: 1,
       harmful_count: 0,

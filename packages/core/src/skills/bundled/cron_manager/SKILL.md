@@ -54,8 +54,8 @@ steps:
       cron_expression: "Cron expression for recurring (e.g., '0 9 * * *')"
       fire_at: "ISO datetime for one_shot (e.g., '2026-04-20T09:00:00')"
       channel: "Notification channel (telegram, discord, webchat)"
-      start_at: "Optional ISO datetime - start of execution window (Croner startAt)"
-      stop_at: "Optional ISO datetime - end of execution window (Croner stopAt)"
+      start_at: "Optional ISO datetime - start of execution window"
+      stop_at: "Optional ISO datetime - end of execution window"
       dom_and_dow: "0 = OR logic (default), 1 = AND logic for day-of-month + day-of-week"
       max_runs: "Optional max executions"
     output: cron_id
@@ -133,21 +133,31 @@ Para gestionar tareas programadas (cron jobs): crear, listar, actualizar, pausar
 | `cron_expression` | string | Expresión cron (solo para recurring) |
 | `fire_at` | string | Datetime ISO (solo para one_shot) |
 | `channel` | string | Canal de notificación |
-| `start_at` | string | Inicio de ventana opcional (Croner startAt) |
-| `stop_at` | string | Fin de ventana opcional (Croner stopAt) |
+| `start_at` | string | Inicio de ventana opcional |
+| `stop_at` | string | Fin de ventana opcional |
 | `dom_and_dow` | number | 0=OR (default), 1=AND (día mes + día semana) |
+| `max_runs` | number | Deja de correr después de N corridas ("recordámelo 3 veces") |
+| `payload` | object | Datos que recibe el agente al ejecutarse |
+| `agent_id` | string | Agente concreto que debe ejecutarla. Si se omite, decide el coordinador |
+| `tool_name` | string | Ejecutar una tool directamente, sin pasar por un agente |
+
+> **La zona horaria no se pasa acá**: sale del perfil del usuario. No la
+> inventes ni la pidas — si el usuario dice "a las 9", son las 9 de su reloj.
 
 ## Cron Expression Format
 
 ```
-* * * * *
-│ │ │ │ │
-│ │ │ │ └── Día semana (0-6, 0=Domingo)
-│ │ │ └──── Mes (1-12)
-│ │ └────── Día del mes (1-31)
-│ └──────── Hora (0-23)
-└────────── Minuto (0-59)
+┌───────── segundos (0-59)  ← opcional, sólo si hacen falta
+│ ┌─────── minuto (0-59)
+│ │ ┌───── hora (0-23)
+│ │ │ ┌─── día del mes (1-31)
+│ │ │ │ ┌─ mes (1-12 o JAN-DEC)
+│ │ │ │ │ ┌ día de semana (0-7 o SUN-SAT, 0 y 7 = domingo)
+* * * * * *
 ```
+
+Cinco campos, o seis poniendo los segundos adelante. Acepta `*`, listas `1,15`,
+rangos `1-5`, pasos `*/2`, y nombres de mes y de día.
 
 ## Ejemplos Comunes
 

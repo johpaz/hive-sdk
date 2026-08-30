@@ -34,8 +34,19 @@ describe("contrato de exports", () => {
     }
   });
 
+/**
+ * Subpaths que sólo exportan tipos.
+ *
+ * Los tipos no existen en runtime, así que su módulo importa correctamente pero
+ * con cero claves. Es legítimo —`Provider` y `ModelResponse` son parte del
+ * contrato público— pero hay que declararlo, o la comprobación de "un barrel
+ * vacío suele ser un barrel roto" no serviría para los demás.
+ */
+const SOLO_TIPOS = new Set(["./agent/providers"]);
+
   test.each(SUBPATHS)("%s se puede importar", async (subpath) => {
     const mod = await import(specifierFor(subpath));
+    if (SOLO_TIPOS.has(subpath)) return;   // resolvió, que es lo que se comprueba
     // Un módulo que resuelve pero no exporta nada casi siempre es un barrel
     // apuntando a un archivo equivocado.
     expect(Object.keys(mod).length).toBeGreaterThan(0);

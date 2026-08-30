@@ -35,11 +35,28 @@ export interface Agent {
 	readonly name: string;
 	readonly id: string;
 	readonly config: AgentConfig;
-	chat(message: string, opts?: { threadId?: string; channel?: string }): AsyncGenerator<AgentEvent>;
+	/**
+	 * Con `stream: true` se emiten eventos `token` con los deltas del proveedor
+	 * a medida que llegan, además del `text` con la respuesta completa del turno.
+	 */
+	chat(
+		message: string,
+		opts?: { threadId?: string; channel?: string; stream?: boolean },
+	): AsyncGenerator<AgentEvent>;
 	run(task: string, opts?: { threadId?: string; channel?: string }): Promise<string>;
 }
 
 export type AgentEvent =
+	/**
+	 * Un fragmento recién llegado del proveedor, para pintar la respuesta
+	 * mientras se genera.
+	 *
+	 * Sólo aparece si se pide `stream: true`. Los proveedores ya emitían estos
+	 * deltas —el mecanismo estaba implementado— pero ningún punto de entrada los
+	 * pasaba, así que nunca llegaban a nadie: la respuesta aparecía de golpe al
+	 * terminar el turno.
+	 */
+	| { type: "token"; content: string }
 	| { type: "text"; content: string }
 	| { type: "tool_call"; name: string; args: Record<string, unknown> }
 	| { type: "tool_result"; name: string; result: unknown }
@@ -125,6 +142,40 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 				created_at: ts,
 				updated_at: ts,
 			});
+		}
+	}
+
+	// Las skills declaradas seguían el mismo camino que las tools —y hasta acá no
+	// lo seguían: `config.skills` estaba tipado y se descartaba en silencio, así
+	// que declarar una skill no hacía absolutamente nada. Una skill no necesita
+	// ejecutor (es instruccional: metadatos más el cuerpo que se le inyecta al
+	// agente), pero sí necesita su fila y su entrada en el índice, o el modelo
+	// nunca la descubre.
+	if (config.skills?.length) {
+		const { createSkill, getSkill, updateSkill } = await import("../services/skills.ts");
+
+		for (const skill of config.skills) {
+			// El cuerpo se arma con los pasos declarados: es lo que lee el agente.
+			const body = [
+				skill.description,
+				"",
+				...skill.steps.map((s, i) => `${i + 1}. **${s.action}** — ${s.instruction}`),
+			].join("\n");
+
+			const campos = {
+				name: skill.name,
+				description: skill.description,
+				category: skill.category,
+				body,
+				tools: skill.tools,
+				triggers: skill.triggers,
+				version: skill.version,
+			};
+
+			// Idempotente: declarar la misma skill dos veces la actualiza.
+			const existente = await getSkill(skill.name);
+			if (existente) await updateSkill(skill.name, campos);
+			else await createSkill({ id: skill.name, ...campos });
 		}
 	}
 
@@ -241,6 +292,17 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 			const threadId = opts?.threadId ?? crypto.randomUUID();
 			let response = "";
 
+			// `onToken` es un callback y esto es un generador: los deltas se
+			// encolan y se drenan entre chunks. Sin buffer habría que elegir entre
+			// perder tokens o bloquear al proveedor mientras el consumidor lee.
+			const pendientes: string[] = [];
+			const onToken = opts?.stream ? (t: string) => { pendientes.push(t); } : undefined;
+			const drenar = function* () {
+				while (pendientes.length > 0) {
+					yield { type: "token" as const, content: pendientes.shift()! };
+				}
+			};
+
 			for await (const chunk of runAgent({
 				agentId,
 				userMessage: message,
@@ -248,7 +310,9 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 				channel: opts?.channel ?? "cli",
 				mcpManager,
 				userId,
+				onToken,
 			})) {
+				yield* drenar();
 				for (const msg of chunk.agent?.messages ?? []) {
 					if (typeof msg.content === "string" && msg.content) {
 						response = msg.content;
@@ -268,6 +332,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 				}
 			}
 
+			yield* drenar();
 			yield { type: "done" as const, response };
 		},
 		async run(task, opts) {

@@ -7,10 +7,11 @@
 
 import type { Config } from "../../config/loader.ts"
 import { logger } from "../../utils/logger.ts"
-import { getAgentLoop } from "../agent-loop.ts"
+import { getAgentLoop, buildAgentLoop } from "../agent-loop.ts"
 import { resolveUserId, resolveAgentId } from "../../storage/onboarding.ts"
 import type { ContentPart } from "../../multimodal/types.ts"
 import type { TurnSource } from "../../storage/collections.ts"
+import type { MCPClientManager } from "../../mcp/index.ts"
 
 export type Provider = "openai" | "anthropic" | "gemini" | "mistral" | "kimi" | "ollama" | "openrouter" | "deepseek" | "nvidia" | "hiveagents" | "z-ai" | "modelscope" | "minimax" | "qwen" | "groq" | "opencode-go"
 
@@ -64,6 +65,32 @@ export interface ModelResponse {
   finishReason?: string
   /** Image artifacts (mcp-result-normalizer.ts, agent-loop.ts's turnImageArtifacts) produced by tools this turn. */
   imageArtifacts?: Array<{ artifactId: string; mimeType: string }>
+}
+
+/**
+ * Crea un `AgentRunner` listo para usar.
+ *
+ * `AgentRunner.generate()` necesita que el loop global exista
+ * (`getAgentLoop()`), y construirlo es un paso aparte que hay que recordar:
+ * `new AgentRunner(config)` a secas compila, se instancia sin quejarse y falla
+ * recién en la primera llamada con "AgentLoop not initialized". En hive ese paso
+ * lo hace su initializer; en el SDK no lo hacía nadie, así que la clase estaba
+ * exportada pero no era utilizable.
+ *
+ * Esta fábrica hace las dos cosas en el orden correcto. Es idempotente: llamarla
+ * dos veces reconstruye el loop con el manager que se le pase.
+ *
+ * ```ts
+ * const runner = await createAgentRunner(loadConfig(), { mcpManager });
+ * const res = await runner.generate({ messages: [...] });
+ * ```
+ */
+export async function createAgentRunner(
+  config: Config,
+  opts: { mcpManager?: MCPClientManager | null } = {},
+): Promise<AgentRunner> {
+  buildAgentLoop({ mcpManager: opts.mcpManager ?? null })
+  return new AgentRunner(config)
 }
 
 export class AgentRunner {

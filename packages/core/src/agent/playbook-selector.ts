@@ -39,20 +39,33 @@ const MAX_RULES_PER_TURN = 5
  */
 const RELEVANCE_RATIO = 0.3
 
+/** Cuántos candidatos se piden de más para sobrevivir al filtro por usuario. */
+const OVERFETCH_FACTOR = 4
+
 // ─── Selection Logic ───────────────────────────────────────────────────────────
 
 /**
- * Select relevant rules from the Playbook based on semantic matching
+ * Select relevant rules from the Playbook based on semantic matching.
+ *
+ * `userId` acota lo aprendido a quien corresponde: una regla se aplica si es
+ * global (`user_id === ""`, el conocimiento sembrado con el producto) o si
+ * salió de las trazas de este mismo usuario. Sin este filtro, lo que el agente
+ * aprende hablando con una persona termina inyectado en el prompt de otra.
+ * Omitirlo devuelve sólo las reglas globales.
  */
-export async function selectPlaybookRules(message: string): Promise<PlaybookRule[]> {
+export async function selectPlaybookRules(message: string, userId?: string): Promise<PlaybookRule[]> {
     const startTime = performance.now()
 
     if (!message.trim()) return []
 
     try {
+        // El índice BM25 es uno solo para todos los usuarios, así que pedir k
+        // resultados y filtrar después dejaría a un usuario sin reglas cuando
+        // las mejor puntuadas son de otro. Se pide un pozo más ancho y se
+        // recorta a MAX_RULES_PER_TURN recién después de filtrar.
         const hits = await searchCapabilities(message, {
             types: ["playbook"],
-            k: MAX_RULES_PER_TURN,
+            k: MAX_RULES_PER_TURN * OVERFETCH_FACTOR,
         })
 
         const relevantIds = applyRelativeCutoff(hits, RELEVANCE_RATIO).map(h => h.rawId)
@@ -64,6 +77,8 @@ export async function selectPlaybookRules(message: string): Promise<PlaybookRule
         const entries = await Promise.all(relevantIds.map(id => playbookCol.get(id)))
         const rules: PlaybookRule[] = entries
             .filter((e): e is NonNullable<typeof e> => !!e && e.doc.active)
+            .filter(e => e.doc.user_id === "" || e.doc.user_id === (userId ?? ""))
+            .slice(0, MAX_RULES_PER_TURN)
             .map(e => ({
                 id: e.id,
                 rule: e.doc.rule,

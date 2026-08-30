@@ -13,8 +13,9 @@ import * as filesystem from "./filesystem/index.ts";
 
 // Web (10)
 import * as web from "./web/index.ts";
+import * as images from "./images/index.ts";
 
-// Cron (8) - Croner-based scheduler tools
+// Cron (8) - scheduler tools
 import * as cron from "./cron/index.ts";
 
 // CLI (1)
@@ -70,6 +71,7 @@ export function createAllTools(config: Config): Tool[] {
 
     // WEB (10)
     ...web.createTools(),
+    ...images.createTools(),
 
     // CRON (8)
     ...cron.createTools(),
@@ -224,3 +226,5 @@ export {
   getBrowserService,
   shutdownBrowser,
 } from "./web/browser-service.ts";
+
+export * from "./images/index.ts";
