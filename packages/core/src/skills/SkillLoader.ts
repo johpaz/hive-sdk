@@ -134,7 +134,14 @@ export interface Skill {
   examples?: SkillExample[];
 }
 
-function parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
+/**
+ * Separa el frontmatter YAML del cuerpo markdown de un `SKILL.md`.
+ *
+ * Exportada porque `services/skills.ts` importa skills del disco a la BD y
+ * necesita exactamente este parseo: duplicarlo garantizaría que un día
+ * acepten formatos distintos.
+ */
+export function parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
   const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
 
   if (!match) {

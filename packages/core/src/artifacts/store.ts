@@ -52,6 +52,11 @@ export async function createArtifact(input: {
   width?: number | null;
   height?: number | null;
   now?: number;
+  /**
+   * Cuándo caduca. `null` = nunca, para lo que es del usuario y no basura
+   * transitoria. Por omisión, los 7 días de siempre.
+   */
+  expiresAt?: number | null;
 }): Promise<ArtifactDoc> {
   const now = input.now ?? Date.now();
   const id = randomUUID();
@@ -77,7 +82,7 @@ export async function createArtifact(input: {
     height: input.height ?? null,
     status: "active",
     created_at: now,
-    expires_at: now + ARTIFACT_RETENTION_MS,
+    expires_at: input.expiresAt !== undefined ? input.expiresAt : now + ARTIFACT_RETENTION_MS,
     expired_at: null,
   };
 
@@ -222,12 +227,82 @@ export async function inspectArtifact(
   };
 }
 
+export interface ListArtifactsOptions {
+  /** Filtra por tipo: `image`, `document`… */
+  kind?: string;
+  includeExpired?: boolean;
+  limit?: number;
+}
+
+/**
+ * Los artefactos de un usuario, del más reciente al más viejo.
+ *
+ * No existía, y sin esto una interfaz no puede mostrarle a alguien lo que tiene
+ * guardado — ni una galería de imágenes ni la lista de adjuntos de una
+ * conversación.
+ */
+export async function listArtifacts(
+  userId: string,
+  opts: ListArtifactsOptions = {},
+): Promise<ArtifactDoc[]> {
+  const artifacts = await col<ArtifactDoc>("artifacts");
+  const rows = await artifacts.findBy("user_id", userId);
+  return rows
+    .map((e) => e.doc)
+    .filter((d) => (opts.includeExpired ? true : d.status === "active"))
+    .filter((d) => (opts.kind ? d.kind === opts.kind : true))
+    .sort((a, b) => b.created_at - a.created_at)
+    .slice(0, opts.limit ?? Number.MAX_SAFE_INTEGER);
+}
+
+/**
+ * Cambia cuándo caduca un artefacto. `null` = conservarlo indefinidamente.
+ *
+ * Es lo que le da al usuario el control: puede marcar como permanente algo que
+ * nació temporal, o ponerle fecha a algo que ya no necesita.
+ */
+export async function setArtifactRetention(
+  artifactId: string,
+  expiresAt: number | null,
+): Promise<ArtifactDoc | null> {
+  const artifacts = await col<ArtifactDoc>("artifacts");
+  const entry = await artifacts.get(artifactId);
+  if (!entry) return null;
+
+  const doc: ArtifactDoc = { ...entry.doc, expires_at: expiresAt };
+  await artifacts.put(artifactId, doc, { expectedVersion: entry.version });
+  return doc;
+}
+
+/**
+ * Borra el artefacto y su archivo, sin esperar a que caduque.
+ *
+ * A diferencia de `expireArtifacts`, que marca `status: "expired"` y conserva la
+ * fila como registro, esto la elimina: es un borrado pedido por el usuario, y
+ * dejar el rastro de algo que pidió borrar sería lo contrario de lo que pidió.
+ */
+export async function deleteArtifact(artifactId: string): Promise<boolean> {
+  const artifacts = await col<ArtifactDoc>("artifacts");
+  const entry = await artifacts.get(artifactId);
+  if (!entry) return false;
+
+  try {
+    if (existsSync(entry.doc.path)) unlinkSync(entry.doc.path);
+  } catch {
+    // El archivo puede haber desaparecido; la fila igual se va.
+  }
+  await artifacts.delete(artifactId);
+  return true;
+}
+
 export async function expireArtifacts(now = Date.now()): Promise<{ expired: number }> {
   const artifacts = await col<ArtifactDoc>("artifacts");
   const rows = await artifacts.scan({});
   let expired = 0;
   for (const row of rows) {
-    if (row.doc.status !== "active" || row.doc.expires_at > now) continue;
+    // `null` es explícito: el usuario pidió conservarlo. Saltarlo ANTES de
+    // comparar fechas evita que un `null > now` (que es false) lo borre.
+    if (row.doc.status !== "active" || row.doc.expires_at === null || row.doc.expires_at > now) continue;
     try {
       if (existsSync(row.doc.path)) unlinkSync(row.doc.path);
     } catch {

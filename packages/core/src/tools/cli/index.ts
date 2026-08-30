@@ -10,6 +10,7 @@ import type { Tool } from "../types.ts";
 import { logger } from "../../utils/logger.ts";
 import { resolveInWorkspace, getWorkspace, expandPath } from "../filesystem/workspace-guard.ts";
 import * as fs from "node:fs";
+import { loadConfig } from "../../config/loader.ts";
 
 const log = logger.child("cli-exec");
 
@@ -27,6 +28,53 @@ const BLOCKED_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /del\s+\/f\s+\/s/, reason: "recursive force delete (Windows)" },
   { pattern: /format\s+[a-z]:/i, reason: "disk format (Windows)" },
 ];
+
+/** El primer token del comando: `git status` → `git`. Es lo que se compara. */
+function commandName(command: string): string {
+  const limpio = command.trim().replace(/^\s*(sudo|env|nohup)\s+/i, "");
+  return (limpio.split(/[\s;|&<>]/)[0] ?? "").split("/").pop() ?? "";
+}
+
+/**
+ * Aplica la política de comandos que el usuario configuró.
+ *
+ * `tools.exec.allowlist` y `.denylist` existían en el esquema de configuración y
+ * **no las leía nadie**: alguien podía escribir `denylist: ["curl", "rm"]`
+ * creyendo que restringía a sus agentes, y no restringía nada. En una opción de
+ * seguridad eso es peor que no tenerla, porque da confianza falsa.
+ *
+ * `BLOCKED_PATTERNS` sigue siendo incondicional: lo catastrófico se bloquea
+ * haya o no configuración. Esta capa es la que el usuario controla.
+ *
+ * Precedencia: si hay allowlist, sólo eso se permite (es la postura más
+ * restrictiva y la que alguien espera al escribirla). La denylist se aplica
+ * después, para poder tener una allowlist amplia con excepciones puntuales.
+ *
+ * Devuelve el motivo del rechazo, o `null` si no hay objeción.
+ */
+function checkExecPolicy(command: string): string | null {
+  const exec = loadConfig().tools?.exec;
+  if (!exec) return null;
+
+  if (exec.enabled === false) {
+    return "La ejecución de comandos está deshabilitada en la configuración";
+  }
+
+  const nombre = commandName(command).toLowerCase();
+  if (!nombre) return null;
+
+  const permitidos = exec.allowlist?.map((c) => c.toLowerCase());
+  if (permitidos?.length && !permitidos.includes(nombre)) {
+    return `Comando no permitido: "${nombre}". Permitidos: ${permitidos.join(", ")}`;
+  }
+
+  const denegados = exec.denylist?.map((c) => c.toLowerCase());
+  if (denegados?.includes(nombre)) {
+    return `Comando denegado por la configuración: "${nombre}"`;
+  }
+
+  return null;   // sin objeción
+}
 
 export const cliExecTool: Tool = {
   name: "cli_exec",
@@ -73,6 +121,13 @@ export const cliExecTool: Tool = {
     // Ensure cwd exists
     if (!fs.existsSync(cwd)) {
       return { ok: false, error: `Working directory not found: ${cwd}` };
+    }
+
+    // ── Política configurable por el usuario ──────────────────────────────────
+    const objecion = checkExecPolicy(command);
+    if (objecion) {
+      log.warn(`bloqueado por configuración: ${command}`);
+      return { ok: false, error: objecion };
     }
 
     // ── Dangerous pattern check ────────────────────────────────────────────────

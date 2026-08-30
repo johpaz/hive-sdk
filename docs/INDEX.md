@@ -5,8 +5,14 @@
 | Documento | Descripción |
 |-----------|-------------|
 | [README.md](../README.md) | Introducción, instalación, CLI, guía rápida |
+| [API-HOOKS.md](./API-HOOKS.md) | Engancharse al ciclo de vida: bloquear una tool, auditar, observar la compactación |
+| [API-ARTIFACTS.md](./API-ARTIFACTS.md) | Archivos fuera de la ventana de contexto, y su retención |
+| [API-RESILIENCE.md](./API-RESILIENCE.md) | Reintentos con backoff y circuit breakers |
+| [API-SESSIONS.md](./API-SESSIONS.md) | Sesiones por canal, historial, reanudación tras un corte |
+| [API-SERVICES.md](./API-SERVICES.md) | **La superficie para una UI** — CRUD de agentes, enjambres, skills, modelos, MCP, cron |
 | [API-AGENTS.md](./API-AGENTS.md) | createAgent, AgentLoop, Tool/Skill Selector, LLM Providers |
 | [API-DAG-SCHEDULER.md](./API-DAG-SCHEDULER.md) | DAGScheduler, TaskGraph, Estrategias, Presets |
+| [API-CRON.md](./API-CRON.md) | Tareas programadas: expresiones, zona horaria, misfires, motor sin dependencias |
 | [API-WORKERS-EVENTS.md](./API-WORKERS-EVENTS.md) | **Bun Workers**, createWorker, WorkerPool, AgentBus, EventBus, Canvas |
 | [API-TOOLS-SKILLS-CHANNELS.md](./API-TOOLS-SKILLS-CHANNELS.md) | Tools, Skills, MCP, Gateway, Channels, Tool Runtime, Storage |
 | [API-CONTEXT-COMPILER.md](./API-CONTEXT-COMPILER.md) | Context Compiler, Message History, Scratchpad, EthicsGuard, ACE |

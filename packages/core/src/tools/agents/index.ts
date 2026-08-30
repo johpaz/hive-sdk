@@ -33,22 +33,9 @@ export const memoryWriteTool: Tool = {
     required: ["title", "content"],
   },
   execute: async (params: Record<string, unknown>) => {
-    const title = params.title as string;
-    const content = params.content as string;
-
     try {
-      const memoryCol = await col<MemoryDoc>("memory");
-      const existing = await memoryCol.get(title);
-      const now = Date.now();
-      await memoryCol.put(title, {
-        id: title,
-        title,
-        content,
-        created_at: existing?.doc.created_at ?? now,
-        updated_at: now,
-      }, existing ? { expectedVersion: existing.version } : { expectedVersion: 0 });
-
-      return { ok: true, title, message: "Memory saved." };
+      const entry = await writeMemory(params.title as string, params.content as string);
+      return { ok: true, title: entry.title, message: "Memory saved." };
     } catch (error) {
       return { ok: false, error: `Failed to save memory: ${(error as Error).message}` };
     }
@@ -69,21 +56,15 @@ export const memoryReadTool: Tool = {
   },
   execute: async (params: Record<string, unknown>) => {
     const title = params.title as string;
-
     try {
-      const memoryCol = await col<MemoryDoc>("memory");
-      const entry = await memoryCol.get(title);
-
-      if (!entry) {
-        return { ok: false, error: `Memory not found: ${title}` };
-      }
-
+      const entry = await readMemory(title);
+      if (!entry) return { ok: false, error: `Memory not found: ${title}` };
       return {
         ok: true,
-        title: entry.doc.title,
-        content: entry.doc.content,
-        createdAt: new Date(entry.doc.created_at).toISOString(),
-        updatedAt: new Date(entry.doc.updated_at).toISOString(),
+        title: entry.title,
+        content: entry.content,
+        createdAt: new Date(entry.createdAt).toISOString(),
+        updatedAt: new Date(entry.updatedAt).toISOString(),
       };
     } catch (error) {
       return { ok: false, error: `Failed to read memory: ${(error as Error).message}` };
@@ -102,15 +83,11 @@ export const memoryListTool: Tool = {
   },
   execute: async () => {
     try {
-      const memoryCol = await col<MemoryDoc>("memory");
-      const notes = (await memoryCol.scan({}))
-        .map(e => e.doc)
-        .sort((a, b) => b.updated_at - a.updated_at);
-
+      const entries = await listMemories();
       return {
         ok: true,
-        count: notes.length,
-        entries: notes.map((n) => ({ title: n.title, createdAt: new Date(n.created_at).toISOString() })),
+        count: entries.length,
+        entries: entries.map((n) => ({ title: n.title, createdAt: new Date(n.createdAt).toISOString() })),
       };
     } catch (error) {
       return { ok: false, error: `Failed to list memories: ${(error as Error).message}` };
@@ -132,23 +109,9 @@ export const memorySearchTool: Tool = {
   },
   execute: async (params: Record<string, unknown>) => {
     const query = params.query as string;
-    const needle = query.toLowerCase();
-
     try {
-      const memoryCol = await col<MemoryDoc>("memory");
-      const notes = (await memoryCol.scan({}))
-        .map(e => e.doc)
-        .filter(n => n.content.toLowerCase().includes(needle) || n.title.toLowerCase().includes(needle));
-
-      return {
-        ok: true,
-        query,
-        count: notes.length,
-        results: notes.map((n) => ({
-          title: n.title,
-          snippet: n.content.slice(0, 200) + (n.content.length > 200 ? "..." : ""),
-        })),
-      };
+      const results = await searchMemories(query);
+      return { ok: true, query, count: results.length, results };
     } catch (error) {
       return { ok: false, error: `Failed to search memories: ${(error as Error).message}` };
     }
@@ -169,17 +132,9 @@ export const memoryDeleteTool: Tool = {
   },
   execute: async (params: Record<string, unknown>) => {
     const title = params.title as string;
-
     try {
-      const memoryCol = await col<MemoryDoc>("memory");
-      const existing = await memoryCol.get(title);
-
-      if (!existing) {
-        return { ok: false, error: `Memory not found: ${title}` };
-      }
-
-      await memoryCol.delete(title);
-
+      const borrada = await deleteMemory(title);
+      if (!borrada) return { ok: false, error: `Memory not found: ${title}` };
       return { ok: true, title, message: "Memory deleted." };
     } catch (error) {
       return { ok: false, error: `Failed to delete memory: ${(error as Error).message}` };
@@ -1202,6 +1157,9 @@ export const busReadTool: Tool = {
 
 import crypto from "crypto";
 import { getAvailableModelsTool } from "./get-available-models.ts";
+// Las tools de memoria son envoltorios: la implementación vive en services/memory.ts,
+// para que una UI pueda usarla sin pasar por el formato que espera el modelo.
+import { writeMemory, readMemory, listMemories, searchMemories, deleteMemory } from "../../services/memory.ts";
 
 export function createTools(): Tool[] {
   return [

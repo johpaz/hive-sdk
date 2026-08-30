@@ -271,3 +271,21 @@ const result = await scheduler.execute(graph, { executor: myExecutor });
 // Configurar timeout razonable
 const config = { id: "task", agentId: "w", taskDescription: "...", deps: [], timeout: 30000 };
 ```
+
+## Errores y utilidades
+
+| | |
+|---|---|
+| `CyclicDependencyError` | El grafo tiene un ciclo: no hay orden posible. Se detecta al construirlo, no al ejecutarlo. |
+| `TaskTimeoutError` | Un nodo agotó su ventana. Lleva el id del nodo. |
+| `TaskFailureError` | Un nodo falló; sus dependientes se marcan sin llegar a correr. |
+
+`defaultInvoker` es cómo se invoca a un agente por defecto en `runRoleSwarm`
+(`runAgentIsolated`). Se puede reemplazar para instrumentar o para tests, sin
+tocar la topología.
+
+`createTaskHandler` · `notifyTaskCompletion` · `setSchedulerForCleanup` conectan
+el enjambre con el scheduler: son lo que hace que una tarea programada pueda
+disparar un grafo y que su finalización se notifique.
+
+*Documentación Hive SDK — ver `version` en package.json*

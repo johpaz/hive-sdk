@@ -17,16 +17,24 @@ bun add @johpaz/hive-sdk
 **Hive SDK es un Agent Harness**: un marco de trabajo completo para construir, desplegar y escalar aplicaciones de agentes de IA. A diferencia de un simple wrapper de LLM, un *harness* provee todo lo necesario para que un agente opere en producción:
 
 - **Agentes**: ciclo ReAct nativo con checkpoint durable, 16 providers LLM y descubrimiento de tools/skills por búsqueda BM25.
-- **Catálogo**: 18 providers y 106 modelos sembrados, cada uno con su precio por millón de tokens — una sola fuente de verdad para el costo.
-- **Tools**: 58 tools incluidas — filesystem, web search, browser automation (`agent-browser`), APIs (`api_request`), a2ui, office, cron, delegación.
+- **Catálogo**: 18 providers y 110 modelos sembrados, cada uno con su precio por millón de tokens — una sola fuente de verdad para el costo.
+- **Tools**: 60 tools incluidas — filesystem, web search, browser automation (`Bun.WebView`), APIs (`api_request`), a2ui, office, cron, delegación.
 - **Skills**: 23 workflows bundled, más los tuyos con `defineSkill` y `SkillLoader`.
 - **Canales**: Telegram, Discord, WhatsApp, Slack y WebChat con `ChannelManager`.
 - **Swarm**: orquestación multi-agente con `DAGScheduler`, `TaskGraph` y `WorkerPool`.
 - **Runtime**: ejecución paralela de tools vía Bun Workers.
 - **Gateway**: servidor HTTP/WebSocket para exponer agentes como API.
 - **Memoria y estado**: HiveDB (colecciones + índice BM25), scratchpad, context compiler con compactación.
+- **Servicios**: CRUD tipado de agentes, enjambres, skills, modelos, MCP y cron para montarle **la interfaz que quieras** — móvil, web o escritorio. Ver [API-SERVICES.md](./docs/API-SERVICES.md).
+- **Sesiones**: un hilo por canal y por contacto, con historial, resumen y reanudación tras un corte.
+- **Imágenes**: redimensionar y convertir con `Bun.Image`, sin dependencias nativas. Las imágenes entrantes se normalizan antes de llegar al modelo — una foto de cámara pasa de 217 KB a 4 KB.
+- **Harness**: cola durable con leases y recuperación tras crash, y ejecutores listos (`initHarnessExecutors`).
 
 Con Hive SDK no montas un agente desde cero: **enganchas tu lógica de negocio en un harness ya armado**.
+
+Y si además querés ponerle interfaz, no tenés que hablarle a la base de datos ni
+imitar el formato que espera el modelo: `@johpaz/hive-sdk/services` expone el
+mismo CRUD que usan las tools, en funciones tipadas.
 
 ## Instalación
 
@@ -222,4 +230,4 @@ npm view @johpaz/hive-sdk dist-tags   # verificar después del release
 
 ---
 
-*Hive SDK v0.2.0 — MIT*
+*Hive SDK v0.3.0 — MIT*

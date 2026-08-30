@@ -351,6 +351,8 @@ export interface TraceDoc {
 export interface ReflectionDoc {
   id: string
   trace_ids: string
+  /** Usuario del que salieron las trazas. `""` cuando abarca varios. */
+  user_id: string
   insight_type: "success_pattern" | "failure_pattern" | "optimization" | "ethics_violation" | "root_cause" | "learning_proposal"
   description: string
   affected_tools: string | null
@@ -363,6 +365,16 @@ export interface PlaybookDoc {
   id: string
   rule: string
   category: string
+  /**
+   * De quién es lo aprendido. `""` = global, que es lo que corresponde a las
+   * reglas sembradas: son conocimiento del producto, no de nadie en particular.
+   *
+   * Sin esto el playbook era global a la instalación, así que **lo que el agente
+   * aprendía interactuando con una persona se le aplicaba a todas**. En una
+   * instalación de un solo usuario da igual; en un host multi-inquilino es una
+   * fuga entre workspaces.
+   */
+  user_id: string
   applicable_to: string | null
   helpful_count: number
   harmful_count: number
@@ -521,7 +533,15 @@ export interface ArtifactDoc {
   height: number | null
   status: "active" | "expired"
   created_at: number
-  expires_at: number
+  /**
+   * `null` = no expira nunca.
+   *
+   * Los artefactos internos —capturas, resultados de tools grandes— son basura
+   * transitoria y se limpian solos a los 7 días. Pero un archivo que el usuario
+   * subió o transformó no es basura: borrárselo a la semana convierte un
+   * servicio en una pérdida de datos. Quien lo crea decide.
+   */
+  expires_at: number | null
   expired_at: number | null
 }
 
@@ -552,8 +572,21 @@ export interface TaskRunDoc {
 // ─── Stage 6: orchestration ───────────────────────────────────────────────────
 
 /** id = title — the old `notes`/`memory_*` table never existed, so this is a from-scratch fix. */
+/**
+ * Memoria de largo plazo de un usuario.
+ *
+ * `id` es `${user_id}:${title}`. Hasta acá era sólo el título y la colección era
+ * global al proceso —coherente con que hive es mono-usuario, pero inservible
+ * para un runtime donde cada quien arma su colmena: dos usuarios no podían
+ * tener una memoria con el mismo título, y cualquiera veía la del otro.
+ *
+ * Las filas anteriores (id = título, sin `user_id`) se migran al arrancar
+ * asignándolas al usuario existente. Ver `migrateLegacyMemories`.
+ */
 export interface MemoryDoc {
   id: string
+  /** Dueño de la memoria. Las filas legacy se migran al usuario único. */
+  user_id: string
   title: string
   content: string
   created_at: number
@@ -611,6 +644,78 @@ export interface DelegationGroupDoc {
   sealed_at: number | null
   ready_at: number | null
   notified_at: number | null
+}
+
+/**
+ * Un enjambre guardado: qué agentes lo componen, con qué rol y en qué orden.
+ *
+ * Hasta acá un enjambre sólo existía mientras corría — `runRoleSwarm()` recibe
+ * los agentes en la llamada y no persiste nada. Quien armara uno desde una
+ * interfaz lo perdía al cerrar la ventana, y por eso hive-cloud terminó creando
+ * sus propias tablas en Postgres: no le quedaba alternativa.
+ *
+ * `agents_json` guarda `[{agentId, role, orderIndex}]`. Se deja como JSON y no
+ * como colección aparte a propósito: un enjambre se lee y se escribe entero,
+ * nunca por agente suelto, así que una tabla de unión sólo agregaría joins.
+ */
+/**
+ * Un endpoint HTTP registrado como herramienta.
+ *
+ * Una tool normal es código con un `execute`, así que desde una interfaz no hay
+ * dónde ponerlo. Un endpoint declarativo invierte eso: el usuario aporta
+ * **datos** —URL, método, cabeceras, qué parámetros acepta— y el ejecutor es
+ * genérico y vive en el SDK. Es la única forma de que alguien sume una
+ * capacidad propia desde una UI sin abrir la puerta a ejecutar código
+ * arbitrario, y sin levantar un servidor MCP.
+ *
+ * Las credenciales NO viven acá: van cifradas en el secret store bajo
+ * `endpoint:<id>:headers`, igual que las de proveedores y canales. Esta fila es
+ * pública y se muestra en la UI; la clave, no.
+ */
+export interface ApiEndpointDoc {
+  id: string
+  name: string
+  description: string
+  method: string
+  url: string
+  /** Cabeceras no sensibles. Las que llevan credenciales van al secret store. */
+  headers_json: string | null
+  /** Query fijos que siempre acompañan la llamada. */
+  query_json: string | null
+  /**
+   * Cuerpo con marcadores `{{param}}` que se reemplazan por lo que pase el
+   * modelo. Sin esto un endpoint POST sólo serviría con cuerpo fijo.
+   */
+  body_template: string | null
+  /** JSON Schema de lo que el modelo puede pasar — lo que ve como parámetros. */
+  param_schema_json: string | null
+  enabled: boolean
+  created_at: number
+  updated_at: number
+}
+
+export interface SwarmDoc {
+  id: string
+  name: string
+  description: string | null
+  /** Cómo se coordinan: en cadena, en paralelo, o con un orquestador que delega. */
+  strategy: "sequential" | "parallel" | "hierarchical"
+  /** Requerido por `hierarchical`; null en las otras dos. */
+  orchestrator_agent_id: string | null
+  /** `[{ agentId, role, orderIndex }]` — ver SwarmMemberSpec. */
+  agents_json: string
+  enabled: boolean
+  /** Tope de delegaciones en la estrategia jerárquica; null = el del runtime. */
+  max_delegations: number | null
+  created_at: number
+  updated_at: number
+}
+
+/** Un integrante del enjambre, tal como se serializa en `SwarmDoc.agents_json`. */
+export interface SwarmMemberSpec {
+  agentId: string
+  role: "orchestrator" | "worker"
+  orderIndex: number
 }
 
 export interface AgentBusMessageDoc {

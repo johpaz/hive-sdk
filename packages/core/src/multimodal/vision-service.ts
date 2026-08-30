@@ -35,6 +35,19 @@ class MultimodalService {
     }
   }
 
+  /**
+   * Convierte una imagen entrante en las partes que ve el modelo.
+   *
+   * Antes de mandarla la **normaliza**: una foto de teléfono son varios
+   * megabytes y unos cuantos miles de tokens, y a 1024 px el modelo ve lo mismo
+   * por una fracción del costo. Esa imagen no viaja una sola vez — queda en el
+   * historial y se reenvía en cada turno siguiente, así que el ahorro se
+   * multiplica por la longitud de la conversación.
+   *
+   * Es best-effort: si el runtime no puede procesarla (Bun < 1.4) o la imagen
+   * está corrupta, se manda tal cual. Perder la imagen sería peor que mandarla
+   * grande.
+   */
   async processImage(image: ImageInput, visionModelId?: string): Promise<ContentPart[]> {
     const parts: ContentPart[] = []
 
@@ -43,23 +56,42 @@ class MultimodalService {
     }
 
     if (image.type === "url") {
+      // Una URL no ocupa contexto: la descarga la hace el proveedor.
       parts.push({ type: "image_url", image_url: { url: image.data as string } })
-    } else if (image.type === "base64") {
-      parts.push({
-        type: "image_base64",
-        base64: image.data as string,
-        mimeType: image.mimeType || "image/jpeg",
-      })
-    } else if (image.type === "buffer") {
-      const base64 = Buffer.from(image.data as Buffer).toString("base64")
-      parts.push({
-        type: "image_base64",
-        base64,
-        mimeType: image.mimeType || "image/jpeg",
-      })
+      return parts
     }
 
+    const crudo = image.type === "base64"
+      ? (image.data as string)
+      : Buffer.from(image.data as Buffer).toString("base64")
+
+    const { base64, mimeType } = await this.normalizeIncoming(crudo, image.mimeType)
+    parts.push({ type: "image_base64", base64, mimeType })
+
     return parts
+  }
+
+  /** Achica la imagen para el modelo; ante cualquier problema devuelve la original. */
+  private async normalizeIncoming(
+    base64: string,
+    mimeType?: string,
+  ): Promise<{ base64: string; mimeType: string }> {
+    const original = { base64, mimeType: mimeType || "image/jpeg" }
+    try {
+      const { imagesSupported, normalizeForModel } = await import("../images/index.ts")
+      if (!imagesSupported()) return original
+
+      const r = await normalizeForModel(base64)
+      if (!r.changed) return original
+
+      return {
+        base64: Buffer.from(r.bytes).toString("base64"),
+        mimeType: `image/${r.metadata.format}`,
+      }
+    } catch (err) {
+      log.warn(`no pude normalizar la imagen entrante, va sin achicar: ${(err as Error).message}`)
+      return original
+    }
   }
 
   async ocrImage(image: ImageInput, providerId?: string): Promise<string> {

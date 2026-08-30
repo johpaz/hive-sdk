@@ -1,11 +1,22 @@
 /**
  * Hive CronScheduler
  *
- * Croner-based scheduler for Hive with HiveDB persistence.
- * Manages recurring and one-shot cron jobs that execute through the agent pipeline.
+ * Manages recurring and one-shot cron jobs that execute through the agent pipeline,
+ * persisted in HiveDB.
+ *
+ * El motor de cron es propio (`./cron`), sin dependencias: sólo `setTimeout` e
+ * `Intl` del runtime. Antes era `croner`.
+ *
+ * `Bun.cron()` no sirve como reemplazo —se evaluó contra el runtime 1.4.0—:
+ * acepta sólo 5 campos y rechaza el sexto, no admite una fecha ISO como patrón
+ * (que es como se agendan los jobs `one_shot`), ignora la zona horaria, y su
+ * handle no expone la próxima corrida, que es de donde sale `next_run_at` y con
+ * lo que se detectan las corridas perdidas al arrancar. Tampoco tiene
+ * equivalente de `protect`, `maxRuns`, `interval`, `startAt`/`stopAt` ni
+ * `domAndDow`, todos campos persistidos de `CronJobDoc`.
  */
 
-import { Cron } from "croner";
+import { Cron } from "./cron/index.ts";
 import { logger } from "../utils/logger.ts";
 import { notifyTaskCompletion } from "./integration.ts";
 import { col, toIndexable, fromIndexable } from "../storage/hive.ts";
@@ -76,7 +87,7 @@ export class CronScheduler {
 
         if (misfirePolicy === "fire_once" && withinGrace) {
           log.info(`[boot:misfire] Job "${task.name}" (${task.id}) misfired at ${misfireTime.toISOString()} — executing now (fire_once, within grace)`);
-          // Activate the job first (so the Croner handle exists for future runs)
+          // Activate the job first (so it stays scheduled for future runs)
           await this.activate(task);
           // Then execute it immediately
           this.execute(task.id).catch((err) => {
@@ -100,7 +111,7 @@ export class CronScheduler {
           });
           await this.activate(task);
         } else {
-          // skip policy — recurring re-schedules its next occurrence via Croner
+          // skip policy — recurring re-schedules its next occurrence on its own
           log.info(`[boot:misfire] Job "${task.name}" (${task.id}) misfired at ${misfireTime.toISOString()} — skipping (misfire_policy=skip)`);
           await this.updateJob(task.id, {
             last_error: `Missed run at ${misfireTime.toISOString()} (policy: skip)`,
@@ -120,7 +131,7 @@ export class CronScheduler {
   }
 
   /**
-   * Activate a cron job - create or recreate its Croner instance
+   * Activate a cron job - create or recreate its scheduled instance
    */
   async activate(task: CronJob): Promise<void> {
     const existingJob = this.jobs.get(task.id);
@@ -218,13 +229,29 @@ export class CronScheduler {
     }
   }
 
-  /** Read-modify-write helper for cron_jobs partial updates, retrying on OCC conflict. */
-  private async updateJob(taskId: string, patch: Partial<CronJobDoc>): Promise<CronJobDoc | null> {
+  /**
+   * Read-modify-write helper for cron_jobs partial updates, retrying on OCC conflict.
+   *
+   * El parche puede ser una función, y para los contadores **tiene que serlo**:
+   * un objeto fijo se calcula una sola vez, fuera del bucle, así que al
+   * reintentar por conflicto de versión se vuelve a escribir el valor viejo y
+   * el incremento se pierde. Con dos ejecuciones solapadas del mismo job —algo
+   * normal en uno que tarda más que su intervalo y no declara `protect`— ambas
+   * leen `error_count: 4` y ambas escriben 5: el job nunca llega al umbral de
+   * auto-pausa y sigue fallando para siempre.
+   */
+  private async updateJob(
+    taskId: string,
+    patch: Partial<CronJobDoc> | ((actual: CronJobDoc) => Partial<CronJobDoc>),
+  ): Promise<CronJobDoc | null> {
     const cronJobsCol = await col<CronJobDoc>("cronJobs");
     for (let attempt = 0; attempt < 5; attempt++) {
       const existing = await cronJobsCol.get(taskId);
       if (!existing) return null;
-      const merged = { ...existing.doc, ...patch };
+      const merged = {
+        ...existing.doc,
+        ...(typeof patch === "function" ? patch(existing.doc) : patch),
+      };
       try {
         await cronJobsCol.put(taskId, merged, { expectedVersion: existing.version });
         return merged;
@@ -284,11 +311,11 @@ export class CronScheduler {
           agent_response: result.response?.slice(0, 1000) || null,
         });
 
-        const refreshed = await this.updateJob(task.id, {
-          run_count: task.run_count + 1,
+        const refreshed = await this.updateJob(task.id, (actual) => ({
+          run_count: actual.run_count + 1,
           last_run_at: finishedAt,
           last_error: null,
-        });
+        }));
 
         const job = this.jobs.get(task.id);
         if (job) {
@@ -322,10 +349,10 @@ export class CronScheduler {
         error_message: errorMessage,
       });
 
-      const updated = await this.updateJob(task.id, {
-        error_count: task.error_count + 1,
+      const updated = await this.updateJob(task.id, (actual) => ({
+        error_count: actual.error_count + 1,
         last_error: errorMessage,
-      });
+      }));
 
       log.error(`[execute] Job "${task.name}" (${task.id}) failed: ${errorMessage}`);
 
@@ -358,12 +385,12 @@ export class CronScheduler {
   }
 
   /**
-   * Handle errors from Croner
+   * Handle errors raised by the scheduled job
    */
   private handleError(task: CronJob, error: Error): void {
     log.error(`[error] Job "${task.name}" (${task.id}) error: ${error.message}`);
 
-    // Fix 3: record Croner-level errors in task_runs for full history
+    // Fix 3: record scheduler-level errors in task_runs for full history
     Promise.resolve().then(async () => {
       const runId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
       const now = new Date().toISOString();
@@ -384,10 +411,10 @@ export class CronScheduler {
         log.warn(`[handleError] Failed to insert task_run: ${(e as Error).message}`);
       }
 
-      await this.updateJob(task.id, {
-        error_count: task.error_count + 1,
+      await this.updateJob(task.id, (actual) => ({
+        error_count: actual.error_count + 1,
         last_error: error.message,
-      });
+      }));
     });
   }
 
@@ -431,7 +458,7 @@ export class CronScheduler {
   }
 
   /**
-   * Deactivate a cron job - stop Croner instance but keep in DB
+   * Deactivate a cron job - stop the scheduled instance but keep it in DB
    */
   deactivate(taskId: string): void {
     const job = this.jobs.get(taskId);

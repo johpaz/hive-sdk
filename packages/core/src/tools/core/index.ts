@@ -136,6 +136,40 @@ function translateQueryToEnglish(query: string): string {
 
 // ─── search_knowledge ────────────────────────────────────────────────────────
 
+/**
+ * Las tools que el agente que pregunta puede realmente usar.
+ *
+ * El descubrimiento buscaba contra el índice global y devolvía cualquier
+ * coincidencia, sin mirar la lista blanca de quien preguntaba. La ejecución sí
+ * estaba protegida —`context-compiler.ts` recorta `allTools`, así que una tool
+ * fuera de la lista no se puede resolver ni llamar— pero el agente igual veía su
+ * nombre y su descripción. Filtrar acá cierra esa fuga y, de paso, deja de
+ * ofrecerle al modelo capacidades que no va a poder usar, que es una forma
+ * segura de hacerle perder un turno.
+ *
+ * Sin agente en el contexto (una llamada suelta, un test) no se filtra nada.
+ */
+async function allowedToolNames(agentId?: string): Promise<Set<string> | null> {
+  if (!agentId) return null;
+  try {
+    const agents = await col<AgentDoc>("agents");
+    const entry = await agents.get(agentId);
+    if (!entry) return null;
+
+    const raw = entry.doc.tool_allowlist_json ?? entry.doc.tools_json;
+    if (!raw) return null;   // sin lista declarada, descubrimiento abierto
+
+    const { expandToolAllowlist } = await import("../../agent/delegation-runtime.ts");
+    const patrones = JSON.parse(raw) as string[];
+    if (!Array.isArray(patrones) || patrones.length === 0) return new Set();
+
+    const { MINIMAL_TOOLS } = await import("../../agent/minimal-loadout.ts");
+    return new Set([...MINIMAL_TOOLS, ...expandToolAllowlist(patrones)]);
+  } catch {
+    return null;
+  }
+}
+
 export const searchKnowledgeTool: Tool = {
   name: "search_knowledge",
   description: "Busca en TODO el conocimiento de Hive: tools nativas, MCP, skills, agentes de catálogo y playbook.",
@@ -158,10 +192,11 @@ export const searchKnowledgeTool: Tool = {
     },
     required: ["query"],
   },
-  execute: async (params: Record<string, unknown>) => {
+  execute: async (params: Record<string, unknown>, config?: any) => {
     const query = params.query as string;
     const type = (params.type as string) ?? "all";
     const limit = (params.limit as number) ?? 10;
+    const usuarioActual = (config?.configurable?.user_id as string) ?? "";
     const MIN_RESULTS_FOR_BILINGUAL = 2;
 
     // Map the tool's `type` param onto capability types
@@ -187,6 +222,8 @@ export const searchKnowledgeTool: Tool = {
 
       const result: any = { query, type, tools: [], skills: [], playbook: [], toolsmcp: [], agents: [] };
 
+      const permitidas = await allowedToolNames(config?.configurable?.agent_id);
+
       // ─── Hydration from HiveDB collections (index stores only ids + search text) ──
 
       const coreCatalog = new Map(CORE_TOOL_CATALOG.map(t => [t.name, t]));
@@ -198,6 +235,10 @@ export const searchKnowledgeTool: Tool = {
       const agentsCol = await col<AgentDoc>("agents");
 
       async function hydrateTool(hit: CapabilityHit): Promise<any | null> {
+        // Ofrecerle al modelo una tool que no puede ejecutar es hacerle perder
+        // un turno, además de contarle qué existe fuera de su alcance.
+        if (permitidas && !permitidas.has(hit.rawId)) return null;
+
         const entry = await toolsCol.get(hit.rawId);
         if (entry) {
           const row = entry.doc;
@@ -232,6 +273,10 @@ export const searchKnowledgeTool: Tool = {
         const entry = await playbookCol.get(hit.rawId);
         const p = entry?.doc;
         if (!p || !p.active) return null;
+        // Mismo alcance que la inyección en el prompt: lo global más lo propio.
+        // Sin esto, el agente puede buscar en el playbook y leerle a un usuario
+        // lo que aprendió de otro, por la puerta de al lado.
+        if (p.user_id !== "" && p.user_id !== usuarioActual) return null;
         return {
           id: p.id, rule: p.rule, category: p.category,
           applicable_to: p.applicable_to ? JSON.parse(p.applicable_to) : null,
@@ -353,7 +398,10 @@ export const notifyTool: Tool = {
 
     log.info(`[notify] Sending to ${channel}/${userId}: ${message.substring(0, 80)}`);
 
-    const result = await sendToUserChannel(channel, userId, message)
+    // El aviso tiene que volver al hilo del que salió: sin el threadId,
+    // `notifyChannel` no sabe a qué conversación del canal responder.
+    const threadId = config?.configurable?.thread_id as string | undefined;
+    const result = await sendToUserChannel(channel, userId, message, { threadId })
     if (!result.ok) throw new Error(`Channel send failed: ${result.error}`)
     return result
   },

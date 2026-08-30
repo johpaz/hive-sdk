@@ -22,13 +22,13 @@
 
 import type { ContentPart } from "../multimodal/types.ts"
 import type { AgentRunDoc, ConversationThreadDoc } from "../storage/collections.ts"
-import { updateDoc } from "../storage/hive.ts"
 import {
   addMessage,
   getHistory,
   type StoredMessage,
 } from "../agent/conversation-store.ts"
 import {
+  archiveThread,
   createWebConversation,
   deleteThread,
   ensureThread,
@@ -37,6 +37,7 @@ import {
   mostRecentWebThread,
   renameThread,
   threadForChannel,
+  unarchiveThread,
 } from "../agent/thread-store.ts"
 import {
   deserializeCheckpoint,
@@ -45,6 +46,7 @@ import {
 } from "../agent/run-store.ts"
 
 export * from "../agent/thread-id.ts"
+export * from "./resolve.ts"
 
 /** El estado de ejecución más reciente del hilo, si alguna vez corrió. */
 export interface SessionRun {
@@ -252,12 +254,12 @@ export async function renameSession(sessionId: string, title: string): Promise<v
  * Para borrarla de verdad, `deleteSession`.
  */
 export async function closeSession(sessionId: string): Promise<void> {
-  await updateDoc<ConversationThreadDoc>("conversationThreads", sessionId, { archived: true })
+  return archiveThread(sessionId)
 }
 
 /** Reabre una sesión archivada. */
 export async function reopenSession(sessionId: string): Promise<void> {
-  await updateDoc<ConversationThreadDoc>("conversationThreads", sessionId, { archived: false })
+  return unarchiveThread(sessionId)
 }
 
 /** Borra la sesión entera: mensajes, resumen, notas y su fila del catálogo. */

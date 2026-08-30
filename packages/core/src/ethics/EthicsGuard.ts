@@ -37,8 +37,12 @@ export class EthicsGuard {
 	 * Con `agentRole` filtra por las que lo declaran en `applicable_to`; si
 	 * ninguna coincide devuelve todas, para no dejar al agente sin capa por un
 	 * `applicable_to` mal cargado.
+	 *
+	 * `userId` acota lo aprendido a quien corresponde: entran las globales
+	 * (`user_id === ""`, sembradas con el producto) y las que salieron de las
+	 * trazas de ese mismo usuario. Omitirlo deja sólo las globales.
 	 */
-	async getRules(agentRole?: string): Promise<EthicsRule[]> {
+	async getRules(agentRole?: string, userId?: string): Promise<EthicsRule[]> {
 		const playbookCol = await col<PlaybookDoc>("playbook");
 		const all = (await playbookCol.scan({}))
 			.map((e) => ({
@@ -48,8 +52,10 @@ export class EthicsGuard {
 				applicable_to: e.doc.applicable_to,
 				helpful_count: e.doc.helpful_count ?? 0,
 				active: e.doc.active,
+				user_id: e.doc.user_id ?? "",
 			}))
 			.filter((r) => r.active && r.category === RESPONSE_QUALITY)
+			.filter((r) => r.user_id === "" || r.user_id === (userId ?? ""))
 			.sort(byUsefulness);
 
 		if (!agentRole) return all;

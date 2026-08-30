@@ -6,6 +6,7 @@ import type { Config } from "../config/loader.ts"
 import { loadConfig } from "../config/loader.ts"
 import { logger } from "../utils/logger.ts"
 import { embeddedToolWorkerPath } from "./embedded-worker.generated.ts"
+import { hasHooks, runBeforeToolCall, runAfterToolCall } from "../hooks/index.ts"
 
 export type ToolCallLike = {
   id: string
@@ -595,7 +596,79 @@ function getPool(maxWorkers: number): ToolWorkerPool | null {
   return sharedPool
 }
 
+/**
+ * Ejecuta un lote de tool calls, aplicando los hooks alrededor.
+ *
+ * Los hooks se resuelven acá y no dentro del despacho porque hay dos caminos
+ * —hilo principal y pool de workers— con puntos de retorno distintos.
+ * Engancharlos abajo dejaría la mitad de las llamadas sin revisar, que en un
+ * hook de política es peor que no tenerlo.
+ *
+ * Una tool bloqueada **no se ejecuta**: se saca del lote y su lugar se rellena
+ * con el motivo, para que el modelo sepa por qué no se hizo en vez de
+ * reintentar a ciegas.
+ */
 export async function executeToolBatch(options: ExecuteToolBatchOptions): Promise<ToolBatchResult[]> {
+  const bloqueadas = new Map<string, string>()
+
+  if (hasHooks("beforeToolCall")) {
+    for (const toolCall of options.toolCalls) {
+      const args = typeof toolCall.function.arguments === "string"
+        ? (() => { try { return JSON.parse(toolCall.function.arguments) } catch { return {} } })()
+        : (toolCall.function.arguments ?? {})
+
+      const motivo = await runBeforeToolCall({
+        toolName: toolCall.function.name,
+        args: args as Record<string, unknown>,
+        agentId: options.toolConfig?.agent_id as string | undefined,
+        userId: options.toolConfig?.user_id as string | undefined,
+        threadId: options.toolConfig?.thread_id as string | undefined,
+      })
+      if (motivo) bloqueadas.set(toolCall.id, motivo)
+    }
+  }
+
+  const permitidas = options.toolCalls.filter((tc) => !bloqueadas.has(tc.id))
+  const ejecutadas = permitidas.length > 0
+    ? await executeToolBatchInner({ ...options, toolCalls: permitidas })
+    : []
+
+  // Se reconstruye el orden original: el modelo espera una respuesta por cada
+  // llamada que hizo, en el orden en que las hizo.
+  const porId = new Map(ejecutadas.map((r) => [r.toolCall.id, r]))
+  const resultados = options.toolCalls.map((toolCall) => {
+    const bloqueo = bloqueadas.get(toolCall.id)
+    if (bloqueo) {
+      return {
+        toolCall,
+        toolName: toolCall.function.name,
+        result: toolErrorResult(toolCall.function.name, bloqueo),
+        ok: false,
+        durationMs: 0,
+      } as ToolBatchResult
+    }
+    return porId.get(toolCall.id)!
+  })
+
+  if (hasHooks("afterToolCall")) {
+    for (const r of resultados) {
+      await runAfterToolCall({
+        toolName: r.toolName,
+        args: {},
+        result: r.result,
+        ok: r.ok,
+        durationMs: r.durationMs,
+        agentId: options.toolConfig?.agent_id as string | undefined,
+        userId: options.toolConfig?.user_id as string | undefined,
+        threadId: options.toolConfig?.thread_id as string | undefined,
+      })
+    }
+  }
+
+  return resultados
+}
+
+async function executeToolBatchInner(options: ExecuteToolBatchOptions): Promise<ToolBatchResult[]> {
   const runtimeConfig = resolveRuntimeConfig(options.workerPool)
   const hiveConfig = options.hiveConfig ?? loadConfig()
   const mainThreadToolNames = [

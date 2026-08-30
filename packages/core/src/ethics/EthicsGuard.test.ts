@@ -12,6 +12,7 @@ async function addRule(id: string, rule: string, category: string, opts?: {
 	applicableTo?: string;
 	helpfulCount?: number;
 	active?: boolean;
+	userId?: string;
 }) {
 	const playbookCol = await col<PlaybookDoc>("playbook");
 	const now = Date.now();
@@ -19,6 +20,7 @@ async function addRule(id: string, rule: string, category: string, opts?: {
 		id,
 		rule,
 		category,
+		user_id: opts?.userId ?? "",
 		applicable_to: opts?.applicableTo ?? null,
 		helpful_count: opts?.helpfulCount ?? 0,
 		harmful_count: 0,

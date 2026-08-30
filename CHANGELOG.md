@@ -2,7 +2,153 @@
 
 ## Sin publicar
 
+### Corregido
+
+- **`browser_scrape` extraía con una tool que no ve lo que el navegador
+  renderizó.** La skill existe para sitios dinámicos, y su paso de extracción
+  usaba `web_fetch`, que vuelve a pedir la URL al servidor y recibe el HTML sin
+  JavaScript ejecutado: en un SPA, una cáscara vacía. Pasa a usar
+  `browser_extract`, que lee el DOM ya renderizado, con un `browser_wait` previo.
+  (Uno de sus ejemplos citaba además `browser_fetch`, que no existe.)
+
+- **`browser_automate` no esperaba a los elementos.** Sus pasos iban de navegar a
+  hacer clic sin `browser_wait` en el medio, que es la falla más común de la
+  automatización web y falla en silencio. Se agregó el paso y el orden de
+  escalada: selector → `browser_script` → `computer_use_task`.
+
+- **La tabla de campos de `cron_manager` omitía la mitad de lo que acepta la
+  tool**: `max_runs`, `payload`, `agent_id` y `tool_name`. También documentaba
+  expresiones de 5 campos cuando el motor acepta 6, y no aclaraba que la zona
+  horaria sale del perfil del usuario y no se pasa en la llamada.
+
+- **Los contadores del scheduler perdían actualizaciones.** `run_count` y
+  `error_count` se calculaban desde una lectura hecha antes del bucle de
+  reintento de `updateJob`, así que al reintentar por conflicto de versión se
+  reescribía el valor viejo. Con dos corridas solapadas del mismo job —normal en
+  uno que tarda más que su intervalo y no declara `protect`, y garantizado en la
+  puesta al día por misfire, que llama a `execute()` en paralelo con el job ya
+  activado— ambas leían `error_count: 4` y ambas escribían 5. La consecuencia no
+  era el número: es que el umbral de auto-pausa (5 errores seguidos) no se
+  alcanzaba nunca y un job que fallaba siempre se quedaba reintentando para
+  siempre. `updateJob` ahora acepta un parche en forma de función, que se evalúa
+  contra la lectura fresca de cada intento. Es el mismo error que ya se corrigió
+  en `touchThread`. Cubierto por `packages/core/src/scheduler/scheduler.test.ts`.
+
+### Agregado
+
+- **El seed inicial de especialistas es una elección.** `ensureHiveDb()` y
+  `seedAllData()` aceptan `specialists: "all" | "none" | string[]`. Con `"none"`
+  la colmena arranca sin ningún especialista y con sólo las `MINIMAL_TOOLS`
+  activas —la competencia del coordinador—, y son los enjambres los que traen
+  consigo a los suyos. `"all"` sigue siendo el default, así que nada cambia para
+  quien no lo pida.
+
+  La elección alcanza también a las **capacidades**, no sólo a los agentes: una
+  fila de tool o skill que nace en un arranque `"none"` nace inactiva. Antes
+  `active` defaulteaba a `true` para toda fila nueva, así que un arranque sin
+  especialistas dejaba igual las 62 tools encendidas — el usuario terminaba
+  apagando a mano lo que nunca pidió.
+
+  **Nunca borra.** La elección gobierna qué se crea, no qué se conserva: una
+  base que ya tiene sus ocho agentes no pierde ninguno por arrancar con
+  `"none"`, y se siguen reconciliando en cada arranque.
+
+  `createSwarm` acepta ahora miembros del catálogo que todavía no tienen fila:
+  con el seed en `"none"` un enjambre es el **pedido de instalación**, no una
+  referencia a algo que ya debería existir. Un id que no es del catálogo y no
+  existe sigue siendo un error.
+
+- **Crear un enjambre ahora siembra sus especialistas.** El seed selectivo
+  (`applySeedPlan`) dejaba elegir qué personas del catálogo instalar, pero
+  `createSwarm` no lo miraba: guardaba el enjambre **sin una queja** con
+  miembros apagados y sus tools inactivas. La validación de "el agente existe"
+  pasaba igual, porque el seed crea las 8 filas siempre y sólo cambia `enabled`
+  — el enjambre quedaba definido y sin poder trabajar.
+
+  `createSwarm` y `updateSwarm` aceptan `activateMembers`, **`false` por
+  defecto**: crear un enjambre no debería cambiar en silencio qué capacidades
+  tiene la instalación entera, así que sin él el enjambre se crea igual y el
+  faltante vuelve en `pendingActivation` para que la UI lo muestre y el usuario
+  decida. Con `true` se activa la unión con lo que ya estaba, de modo que
+  encender los especialistas de un enjambre nunca apaga los de otro.
+
+  Se agregó `planActivationFor(agentIds)`, que devuelve el faltante **sin
+  encender nada** —para el "esto se va a activar" antes de confirmar— y
+  `enableCatalogAgents(ids)` en plural, porque activarlos de a uno reescribía el
+  catálogo entero una vez por agente. Cubierto por `test/swarm-seed.test.ts`.
+
+- **Skills para las capacidades que no tenían ninguna.** `image_editor`
+  (`image_metadata`, `image_transform`, `artifact_inspect`) y `artifact_reader`
+  (`artifact_read`, `artifact_inspect`). Las tools existían pero ninguna skill
+  las enseñaba, así que el modelo sólo podía dar con ellas de casualidad vía
+  `search_knowledge` — y en el caso de los artefactos eso deja inerte todo el
+  mecanismo de `artifact_ref`, que existe justamente para que los archivos
+  grandes no entren en la ventana de contexto.
+
+
+- **`sessionStart` y `sessionEnd` ya se disparan.** Eran registrables desde que
+  se implementaron los hooks, pero nada los invocaba. Van enganchados a las
+  cuatro transiciones del ciclo de vida del hilo (crear, reabrir, archivar,
+  borrar), todas en `agent/thread-store.ts`. `sessionStart` cuelga del `put` que
+  crea la fila y no de `createSession`, que es idempotente y se llama en cada
+  turno: enganchado ahí habría contado mensajes en vez de conversaciones.
+  `closeSession`/`reopenSession` pasan a delegar en los nuevos `archiveThread`
+  y `unarchiveThread` para que las cuatro transiciones vivan en un solo archivo.
+  Cubierto por `test/hooks.test.ts`.
+
+### Quitado
+
+- **Cero dependencias para el cron: fuera `croner` y `cron-parser`.** El motor
+  ahora es propio (`scheduler/cron/`) y usa sólo `setTimeout` e `Intl` del
+  runtime. `cron-parser` además ni siquiera se importaba: estaba declarada en
+  los dos `package.json` y se la bajaba todo el que instalara el SDK.
+
+  `Bun.cron()` **no** sirve como reemplazo —evaluado contra el runtime 1.4.0—:
+  acepta sólo 5 campos, rechaza una fecha ISO como patrón (que es como se
+  agendan los jobs `one_shot`), ignora la zona horaria en `parse()`, y su handle
+  no expone la próxima corrida, de donde sale `next_run_at` y con lo que se
+  detectan las corridas perdidas al arrancar. Tampoco tiene equivalente de
+  `protect`, `maxRuns`, `interval`, `startAt`/`stopAt` ni `domAndDow`, todos
+  campos persistidos de `CronJobDoc`.
+
+  El motor propio conserva la superficie entera, así que `CronScheduler` no
+  cambió de comportamiento, e implementa además los dos casos de horario de
+  verano que se rompen callados: la hora que **no existe** al adelantar el
+  reloj (se saltea ese día en vez de correr a una hora inventada) y la que
+  **ocurre dos veces** al atrasarlo (corre en la primera, una sola vez). El
+  motor se exporta suelto desde `./scheduler` —`Cron`, `parseCronExpression`,
+  `isValidCronExpression`, `nextOccurrence`— para validar o previsualizar sin
+  montar un scheduler. Documentado en `docs/API-CRON.md`. Cubierto por
+  `packages/core/src/scheduler/cron/cron-engine.test.ts` (28 tests).
+
+- **`CronerOptions` (tipo público).** Estaba declarado dos veces —en
+  `scheduler/types.ts` y en `swarm/types.ts`— y no tipaba nada en ninguna parte:
+  un tipo muerto con el nombre de una librería que ya no se usa. Su forma es la
+  de `CronOptions`, que ahora exporta el motor desde `./scheduler`.
+
+- **Menciones a Croner en lo que lee el modelo.** Las descripciones de
+  `cron.create` (`start_at`, `stop_at`, `dom_and_dow`) y la skill `cron_manager`
+  citaban opciones "de Croner". Eso entra en el prompt: nombrarle al modelo una
+  librería que el código ya no usa lo manda a buscar documentación que no
+  aplica. Quedan sólo las referencias históricas que explican por qué el motor
+  es propio.
+
 ### Seguridad
+
+- **El playbook ACE no distinguía de quién era lo aprendido.** `PlaybookDoc` y
+  `ReflectionDoc` no tenían `user_id`, así que la cadena entera —trazas →
+  reflexión → regla → inyección en el system prompt— era global: lo que el
+  agente aprendía interactuando con una persona se le aplicaba a todas las demás
+  del mismo proceso. Es el mismo supuesto de "un solo usuario" que ya se había
+  cerrado en `memory`. Ahora el reflector agrupa las trazas por usuario
+  (derivado del `thread_id`), el curador propaga el dueño a la regla y deduplica
+  dentro del usuario, y las tres puertas de lectura filtran a global + propio:
+  `selectPlaybookRules(texto, userId)`, `EthicsGuard.getRules(rol, userId)` y la
+  tool `search_knowledge`. Las reglas sembradas siguen siendo globales a
+  propósito (`user_id: ""`): son conocimiento del producto, no de nadie.
+  `ensureHiveDb()` migra las filas anteriores asignándolas al primer usuario de
+  la base — dejarlas sin dueño las volvería globales, que es justo lo que se
+  viene a cerrar. Cubierto por `test/playbook-isolation.test.ts`.
 
 - **La lista blanca de tools no se aplicaba al descubrimiento dinámico.**
   `compileContext` sólo recortaba `allTools` cuando el agente era de catálogo
@@ -98,7 +244,56 @@
 
 - CI actualizado a **Bun 1.4.0**, alineado con `hive`.
 
+### Quitado
+
+- **`AgentRunner`** (`agent/providers/index.ts`). Era una capa de compatibilidad
+  con la firma de LangGraph anterior a que el runtime pasara a `agent-loop.ts`, y
+  **nunca llegó a instanciarse**: los cuatro puntos de entrada reales —el
+  gateway, `createAgent`, el worker y los ejecutores del harness— llaman
+  `runAgent()` directo. 158 líneas de código muerto. El subpath
+  `@johpaz/hive-sdk/agent/providers` sigue existiendo con sus tipos (`Provider`,
+  `ModelResponse`), que sí son parte del contrato público.
+
 ### Añadido
+
+- **Streaming por token en la API pública.** `chat(mensaje, { stream: true })`
+  emite eventos `token` con los deltas del proveedor a medida que llegan. El
+  mecanismo ya existía —los proveedores llamaban `onToken` por cada delta— pero
+  **ningún punto de entrada lo pasaba**, así que nunca llegaba a nadie: la
+  respuesta aparecía de golpe al terminar el turno.
+
+- **`@johpaz/hive-sdk/services/images`** — imágenes como servicio para el usuario
+  final, no para el agente: entra y sale por bytes, se persiste por id. Incluye
+  galería (`listImages`), presets y control de retención.
+
+- **`@johpaz/hive-sdk/services` — la superficie que maneja una interfaz.** El SDK
+  estaba construido para que lo condujera el modelo: casi todo el CRUD vivía
+  dentro de las tools (`cronCreateTool`, `memoryWriteTool`, `agentCreateTool`),
+  con argumentos con forma de LLM y respuestas escritas para un prompt. Montar
+  una UI encima obligaba a llamar `tool.execute({...})` y parsear prosa, o a
+  escribir consultas crudas contra HiveDB conociendo un esquema privado.
+
+  Ahora la implementación vive en `services/` y las tools la envuelven — una
+  implementación, dos consumidores. Diez dominios: `agents`, `swarms`, `skills`,
+  `tools`, `providers`, `models`, `mcp`, `cron`, `memory`, `ethics`. Es
+  deliberadamente agnóstico del framework (funciones, no rutas HTTP): una app
+  móvil o de escritorio que embeba el runtime no quiere un servidor.
+
+  Añade tres cosas que hive no hace: **valida que las referencias existan** al
+  asignar tools/skills/MCP a un agente (hive las guarda sin comprobar, y el
+  error aparece cuando el agente intenta usarlas); **`testMcpServer()`**, que
+  allí es "guardá y esperá a que el hot-reload conecte"; y el **rename de modelo
+  transaccional**, que re-apunta a cada agente en el mismo `batch()`.
+
+- **`SwarmDoc` — los enjambres se pueden guardar.** Hasta acá un enjambre existía
+  sólo mientras corría: `runRoleSwarm()` recibe los agentes en la llamada y no
+  persiste nada, así que quien armara uno desde una interfaz lo perdía al cerrar
+  la ventana. Era el bloqueador real para poner una UI encima del SDK, y explica
+  por qué hive-cloud creó sus propias tablas en Postgres.
+
+  La validación ocurre **al guardar, no al correr**: un enjambre jerárquico sin
+  orquestador, o con un agente que ya no existe, es un error de configuración —
+  descubrirlo semanas después, cuando alguien lo ejecuta, es descubrirlo tarde.
 
 - **El harness trae ejecutores listos** (`initHarnessExecutors()`). La cola
   durable sabía encolar, reintentar y recuperar tras un crash, pero no ejecutar:
@@ -157,6 +352,63 @@
   consumidor se defendía pineando la versión exacta.
 
 ### Corregido
+
+- **Las notificaciones no llegaban a ningún lado.** `notifyChannel` era un stub
+  que sólo hacía `console.log`, y está en el camino real: la tool `notify`, los
+  reportes de progreso, el aviso de que una tarea programada terminó, el de un
+  turno interrumpido por un crash. Un agente sobre el SDK **no podía hablarle al
+  usuario por ningún canal**, mientras `channels/manager.ts` tenía adaptadores
+  funcionales de Slack, Discord, Telegram y WhatsApp sin nada que los conectara.
+  Ahora la app registra el suyo con `setChannelManager()`; sin registro se
+  conserva el comportamiento anterior, pero avisando.
+
+- **Las imágenes se reenviaban al modelo en cada turno.** `content_multimodal`
+  guardaba el base64 completo y `toAPIMessages` lo restauraba una y otra vez:
+  cinco fotos en una conversación eran cinco fotos viajando en cada turno
+  siguiente. Ahora se guardan como artefacto y en el historial queda una
+  referencia; las de los últimos mensajes se vuelven a poner en línea, porque un
+  modelo de visión no ve una foto desde un id. Mismo criterio que
+  `clearOldToolResults`.
+
+- **`token_count` no contaba las imágenes**, así que la compactación creía que un
+  hilo lleno de fotos ocupaba lo que ocupa su texto y no se disparaba hasta que
+  el proveedor rechazaba el turno. Ahora se estiman por área, como cobran los
+  proveedores.
+
+- **`agent.context.compactionThreshold` no lo leía nadie.** Estaba en el esquema
+  de configuración y ajustarlo no hacía nada. Una opción que no hace nada es
+  peor que no tenerla, porque el usuario cree que cambió algo.
+
+- **`search_knowledge` filtraba en el lugar equivocado.** Mostraba tools fuera de
+  la lista blanca del agente. La ejecución sí estaba protegida, pero además de
+  contarle qué existe fuera de su alcance, ofrecerle algo que no puede ejecutar
+  es hacerle perder un turno.
+
+- **El seed selectivo no habría sobrevivido a un reinicio.** `reseedToolsAndSkills()`
+  escribía `active: true` para todas las tools y skills en cada arranque, así que
+  la elección del usuario sobre qué capacidades quiere en su colmena duraba hasta
+  el próximo reinicio: apagaba lo que no usaba y volvía todo. Ahora el reseed
+  preserva `active` —la descripción y la categoría siguen viniendo del código,
+  que es su fuente de verdad—, igual que ya hacía con los modelos.
+
+- **La memoria era global al proceso.** El id de `MemoryDoc` era sólo el título y
+  no había `user_id`: dos usuarios no podían tener una memoria con el mismo
+  nombre —la segunda pisaba la primera— y cualquiera veía la del otro. Coherente
+  con hive, que es mono-usuario; inservible para un runtime donde cada quien arma
+  su colmena. El id pasa a ser `${userId}:${title}` y toda lectura filtra por
+  dueño. Las filas anteriores se migran al arrancar.
+
+- **Los ids no manejaban acentos.** "Efímero" quedaba como `ef_mero` y "Diseño"
+  como `dise_o`, porque la í y la ñ no son `[a-z0-9]`. Para un producto en
+  español eso no es cosmético. `slugify()` normaliza los diacríticos antes de
+  filtrar, y se aplica también a skills y servidores MCP.
+
+- **Documentación que describía un backend retirado.** `API-TOOLS-SKILLS-CHANNELS.md`
+  seguía explicando cómo `agent-browser` se instalaba solo en `~/.hive/` al
+  primer uso — un backend que ya no existe. Reescrita para `Bun.WebView`, con la
+  nota de por qué se retiró. También se corrigieron los conteos (58→60 tools,
+  106→110 modelos) y los pies de página congelados en `v0.0.17`.
+
 
 - **Un job que moría por expiración de lease no disparaba su terminal hook.** La
   ruta normal de fallo sí lo hacía; la de recuperación tras un crash, no. El

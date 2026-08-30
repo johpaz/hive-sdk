@@ -14,6 +14,7 @@ import { col, updateDoc } from "../storage/hive.ts"
 import { logger } from "../utils/logger.ts"
 import type { ConversationThreadDoc, ConversationDoc, SummaryDoc } from "../storage/collections.ts"
 import { makeThreadId, parseThreadId, newWebConversationId } from "./thread-id.ts"
+import { runSessionStart, runSessionEnd } from "../hooks/index.ts"
 
 const log = logger.child("thread-store")
 
@@ -65,7 +66,17 @@ export async function ensureThread(input: EnsureThreadInput): Promise<string> {
     }, { expectedVersion: 0 })
   } catch {
     // Otro turno del mismo canal la creó primero — ambos quieren lo mismo.
+    return threadId
   }
+
+  // `sessionStart` se dispara acá y no en `createSession` porque esa función es
+  // idempotente y se llama en cada turno: engancharla ahí haría que el hook
+  // corriera con cada mensaje. El `put` con `expectedVersion: 0` es el punto de
+  // serialización, así que dispararlo justo después de que ese put haya salido
+  // bien evita el doble disparo cuando dos turnos del mismo canal llegan juntos
+  // — el perdedor se fue por el catch de arriba. Cubre además a quien llame
+  // `ensureThread` directamente desde un canal, sin pasar por `sessions`.
+  await runSessionStart({ threadId, userId: input.userId, channel: input.channel })
   return threadId
 }
 
@@ -177,6 +188,29 @@ export async function renameThread(threadId: string, title: string): Promise<voi
 }
 
 /**
+ * Archiva el hilo: sale de la lista pero no se pierde nada.
+ *
+ * Vive acá y no en `sessions/index.ts` para que las cuatro transiciones del
+ * ciclo de vida —crear, archivar, reabrir, borrar— disparen sus hooks desde un
+ * solo archivo. Repartidas, la próxima que se agregue se olvida de disparar.
+ */
+export async function archiveThread(threadId: string): Promise<void> {
+  const anterior = await getThread(threadId)
+  await updateDoc<ConversationThreadDoc>("conversationThreads", threadId, { archived: true })
+  // Archivar dos veces es un no-op, y el hook no debería enterarse dos veces.
+  if (anterior?.archived) return
+  await runSessionEnd({ threadId, userId: anterior?.user_id, channel: anterior?.channel })
+}
+
+/** Reabre un hilo archivado: vuelve a estar activo, y eso es un `sessionStart`. */
+export async function unarchiveThread(threadId: string): Promise<void> {
+  const anterior = await getThread(threadId)
+  await updateDoc<ConversationThreadDoc>("conversationThreads", threadId, { archived: false })
+  if (anterior && !anterior.archived) return
+  await runSessionStart({ threadId, userId: anterior?.user_id, channel: anterior?.channel })
+}
+
+/**
  * Borra la conversación entera: mensajes, resumen, notas y la fila del registro.
  * Los mensajes se localizan por prefijo, igual que los lee conversation-store.
  */
@@ -193,9 +227,18 @@ export async function deleteThread(threadId: string): Promise<void> {
   for (const n of notes) await scratchpad.delete(n.id)
 
   const c = await threadsCol()
+  // La fila se lee antes de borrarla: después no hay de dónde sacar el usuario
+  // ni el canal para el contexto del hook. El threadId los lleva codificados,
+  // pero el hilo legacy es id = userId pelado y no parsea.
+  const fila = (await c.get(threadId))?.doc
   await c.delete(threadId).catch(() => {})
 
   log.info(`conversación ${threadId} borrada (${messages.length} mensajes)`)
+  await runSessionEnd({
+    threadId,
+    userId: fila?.user_id ?? parseThreadId(threadId)?.userId,
+    channel: fila?.channel ?? parseThreadId(threadId)?.channel,
+  })
 }
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "@hive/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Hive Core — runtime de agentes con context engineering, catálogo de modelos y HiveDB",
   "license": "MIT",
   "type": "module",
@@ -42,8 +42,6 @@
     "@slack/bolt": "^4.7.2",
     "@whiskeysockets/baileys": "7.0.0-rc11",
     "async-mutex": "^0.5.0",
-    "cron-parser": "^5.5.0",
-    "croner": "^10.0.1",
     "discord.js": "^14.26.4",
     "docx": "^9.6.1",
     "grammy": "^1.42.0",

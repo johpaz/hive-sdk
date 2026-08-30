@@ -83,11 +83,26 @@ interface Agent {
 
 ```typescript
 type AgentEvent =
+  | { type: "token"; content: string }      // sólo con `stream: true`
   | { type: "text"; content: string }
   | { type: "tool_call"; name: string; args: Record<string, unknown> }
   | { type: "tool_result"; name: string; result: unknown }
   | { type: "done"; response: string };
 ```
+
+#### Streaming por token
+
+```typescript
+for await (const ev of agent.chat("resumime esto", { stream: true })) {
+  if (ev.type === "token") process.stdout.write(ev.content);   // se va pintando
+  if (ev.type === "done") console.log("\n", ev.response);
+}
+```
+
+Sin `stream: true` el comportamiento es el de siempre: `text` con la respuesta
+completa del turno. Los proveedores ya emitían estos deltas, pero hasta 0.3.0
+ningún punto de entrada los pasaba, así que la respuesta aparecía de golpe al
+terminar.
 
 ### Ejemplo
 
@@ -191,11 +206,17 @@ for await (const chunk of stream) {
 
 ```typescript
 interface StreamChunk {
-  agent?: { messages: any[] };
+  agent?: { messages: any[]; streamed?: boolean };
   tools?: { messages: any[] };
   usage?: { input_tokens: number; output_tokens: number };
+  /** Imágenes que produjeron las tools de este turno, como referencias. */
+  artifacts?: { images: Array<{ artifactId: string; mimeType: string }> };
 }
 ```
+
+Cada `yield` es **una respuesta completa del modelo** o un resultado de tool, no
+un delta. Para deltas, `onToken` en `AgentLoopOptions` o `stream: true` en
+`agent.chat()`.
 
 ### runAgent (bajo nivel)
 
@@ -244,13 +265,13 @@ const MIN_RELEVANCE_THRESHOLD = -30;
 
 ### CORE_TOOL_CATALOG
 
-58 tools built-in organizadas por categoría:
+60 tools built-in organizadas por categoría:
 
 | Categoría | # | Descripción |
 |-----------|---|-------------|
 | agents | 15 | delegación (`task_delegate`, `task_revise`), memoria, catálogo de modelos |
 | web | 10 | `web_search`, `web_fetch`, automatización de browser, `artifact_inspect` |
-| cron | 8 | scheduling con Croner |
+| cron | 8 | tareas programadas |
 | office | 8 | PDF, DOCX, XLSX, PPTX |
 | filesystem | 7 | read, write, edit, delete, list, glob, exists |
 | a2ui | 4 | superficies de UI generadas por el agente |
@@ -365,3 +386,45 @@ reg.has("my_tool"); // true
 const { maybeCompact } = await import("../agent/Compaction.ts");
 await maybeCompact(threadId, { channel, userId });
 ```
+
+## Resto de la superficie del loop
+
+Todo desde `@johpaz/hive-sdk`.
+
+### Ejecutar
+
+| | |
+|---|---|
+| `runAgent(opts)` | El loop. Devuelve un `AsyncGenerator<StreamChunk>`. |
+| `runAgentIsolated(opts)` | Un worker en contexto aislado; devuelve sólo el texto final. Es lo que usan el enjambre y `task_delegate`. |
+| `runAgentIsolatedDetailed(opts)` | Igual, pero además devuelve la evidencia de las tools que usó — la necesita quien tenga que justificar una entrega. |
+| `createAgentRunner(config, opts?)` | Un `AgentRunner` listo. Construye el loop global, que es lo que `generate()` necesita: `new AgentRunner()` a secas se instancia sin quejarse y falla en la primera llamada. |
+
+### El loop global
+
+`buildAgentLoop(opts)` lo construye, `getAgentLoop()` lo devuelve (o `null`), y
+`rebuildAgentLoop(opts)` lo rehace — por ejemplo tras conectar un manager MCP.
+
+Es estado de proceso: un host multi-inquilino que corra varias colmenas a la vez
+debería usar `runAgent()` directo con `credentials` por llamada, no este
+singleton.
+
+### Errores
+
+| | |
+|---|---|
+| `LLMCallTimeoutError` | Una llamada al proveedor agotó su ventana. Es por llamada, no del turno entero. |
+| `AgentSynthesisError` | El modelo no pudo redactar la respuesta final tras dos intentos. |
+
+`withTimeout(op, ms)` acota una operación a su propia ventana, independiente de
+la del turno. Es lo que evita que una tool lenta se lleve puesto el turno entero.
+
+### Interno, expuesto por utilidad
+
+`synthesizeFinalResponse` fuerza el cierre de un turno que se quedó sin
+iteraciones. `injectArtifactReadIfNeeded` agrega `artifact_read` al loadout en
+cuanto un resultado devuelve un `artifact_ref` que el modelo va a necesitar
+abrir: descubrirla por búsqueda costaría una iteración y asume que al modelo se
+le ocurra buscarla.
+
+*Documentación Hive SDK — ver `version` en package.json*

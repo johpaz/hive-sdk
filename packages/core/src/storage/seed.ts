@@ -57,6 +57,8 @@ export const SEED_DATA: SeedData = {
     { id: "computer_use_task", name: "computer_use_task", category: "web", description: "Operar el navegador de Hive mirando la pantalla: clic por coordenadas, escribir y navegar cuando no hay selector estable. Sinónimos: usar el navegador, hacer clic, operar una página, rellenar formulario, computer use" },
     { id: "artifact_inspect", name: "artifact_inspect", category: "web", description: "Inspeccionar integridad y metadatos de un artefacto administrado sin modificarlo. Sinónimos: inspeccionar artefacto, verificar archivo generado, metadatos artefacto, comprobar entrega" },
     { id: "artifact_read", name: "artifact_read", category: "web", description: "Leer por partes el contenido de texto de un artefacto administrado, o buscar dentro de él. Sinónimos: leer artefacto, ver contenido del artefacto, abrir resultado grande, buscar dentro del artefacto, leer artifact_ref" },
+    { id: "image_metadata", name: "image_metadata", category: "images", description: "Leer dimensiones y formato de una imagen guardada sin cargarla al contexto. Sinónimos: medir imagen, dimensiones de la imagen, tamaño de la foto, formato de imagen" },
+    { id: "image_transform", name: "image_transform", category: "images", description: "Redimensionar, rotar o convertir de formato una imagen guardada, devolviendo un artefacto nuevo. Sinónimos: redimensionar imagen, cambiar tamaño, convertir a webp, comprimir imagen, rotar foto, achicar imagen" },
     { id: "browser_click", name: "browser_click", category: "web", description: "Hacer clic en un elemento de la página web. Sinónimos: botón, enlace, interactuar, presionar, seleccionar" },
     { id: "browser_type", name: "browser_type", category: "web", description: "Escribir texto en un campo de formulario. Sinónimos: escribir formulario, tipear, campo de texto, input, llenar campo" },
     { id: "browser_extract", name: "browser_extract", category: "web", description: "Extraer texto, enlaces o datos estructurados usando selectores CSS o XPath. Sinónimos: obtener datos, scraping, selectores, extraer información" },
@@ -64,7 +66,7 @@ export const SEED_DATA: SeedData = {
     { id: "browser_wait", name: "browser_wait", category: "web", description: "Esperar a que aparezca un elemento o se cumpla una condición. Sinónimos: esperar, condición, elemento, selector, pausa" },
 
     // ─────────────────────────────────────────
-    // 3. CRON — Tareas programadas (Croner-based)
+    // 3. CRON — Tareas programadas
     // ─────────────────────────────────────────
     { id: "cron.create", name: "cron.create", category: "cron", description: "Crear una automatización de Hive programada: recurrente (expresión cron) o ejecución futura única (fire_at). Requiere 'task'. Sinónimos: programar tarea, crear automatización, ejecutar después, tarea recurrente, una vez" },
     { id: "cron.list", name: "cron.list", category: "cron", description: "Listar todas las tareas programadas con próximos horarios de ejecución. Sinónimos: ver tareas programadas, listar cronograma, próximas ejecuciones" },
@@ -423,7 +425,9 @@ import { SkillLoader } from "../skills/index.ts"
 import type {
   ToolDoc, SkillDoc, EthicsDoc, ProviderDoc, ModelDoc, McpServerDoc, ChannelDoc, PlaybookDoc, AgentDoc,
 } from "./collections.ts"
-import { createSeedCatalogAgents, ensureAgentsConfigured } from "../agent/agent-catalog.ts"
+import { createSeedCatalogAgents, ensureAgentsConfigured, requiredCapabilitiesFor } from "../agent/agent-catalog.ts"
+import { MINIMAL_TOOLS } from "../agent/minimal-loadout.ts"
+import { expandToolAllowlist } from "../agent/delegation-runtime.ts"
 
 const log = logger.child("seed");
 
@@ -621,7 +625,32 @@ async function pruneRetired(): Promise<void> {
   if (removed > 0) log.info(`[seed] 🗑️  Removed ${removed} retired capability row(s)`);
 }
 
-async function reseedToolsAndSkills(): Promise<void> {
+/**
+ * Qué tools y skills deben nacer activas, según los especialistas elegidos.
+ *
+ * `null` = todas, que es el modo `"all"`. En cualquier otro modo la elección
+ * gobierna también las capacidades: un arranque `"none"` con las 62 tools
+ * activas sería contradecir el punto entero —ningún especialista instalado y
+ * todas las herramientas encendidas—, y el usuario terminaría apagándolas a
+ * mano una por una.
+ *
+ * Sólo afecta a las filas **nuevas**: `active` de una fila existente es la
+ * elección del usuario y sobrevive a todos los arranques.
+ */
+function capacidadesIniciales(
+  especialistas: SpecialistSeedMode,
+): { tools: Set<string>; skills: Set<string> } | null {
+  if (especialistas === "all") return null
+  const elegidos = especialistas === "none" ? [] : especialistas
+  const { toolPatterns, skills } = requiredCapabilitiesFor(elegidos)
+  return {
+    tools: new Set([...MINIMAL_TOOLS, ...expandToolAllowlist(toolPatterns)]),
+    skills: new Set(skills),
+  }
+}
+
+async function reseedToolsAndSkills(especialistas: SpecialistSeedMode = "all"): Promise<void> {
+  const iniciales = capacidadesIniciales(especialistas);
   // Seeding only writes the rows; the search index is rebuilt from them at
   // startup by the sync pass in gateway/initializer.ts.
 
@@ -630,9 +659,17 @@ async function reseedToolsAndSkills(): Promise<void> {
   const now = Date.now();
   let toolCount = 0;
   for (const tool of SEED_DATA.tools) {
+    // La descripción y la categoría vienen del código y se sobrescriben —son la
+    // fuente de verdad—, pero `active` NO: es la elección del usuario sobre qué
+    // capacidades quiere en su colmena (services/setup.ts). Pisarla en cada
+    // arranque haría que el seed selectivo durara hasta el próximo reinicio.
+    const existing = await toolsCol.get(tool.id);
     await toolsCol.put(tool.id, {
       id: tool.id, name: tool.name, description: tool.description, category: tool.category,
-      enabled: true, active: true, created_at: now, updated_at: now,
+      enabled: existing?.doc.enabled ?? true,
+      active: existing?.doc.active ?? (iniciales ? iniciales.tools.has(tool.name) : true),
+      created_at: existing?.doc.created_at ?? now,
+      updated_at: now,
     });
     toolCount++;
   }
@@ -646,6 +683,9 @@ async function reseedToolsAndSkills(): Promise<void> {
 
   let skillCount = 0;
   for (const s of realSkills) {
+    // Igual que con las tools: el contenido viene del archivo, pero `active` es
+    // del usuario y sobrevive al reseed.
+    const existingSkill = await skillsCol.get(s.name);
     await skillsCol.put(s.name, {
       id: s.name,
       name: s.name,
@@ -661,8 +701,8 @@ async function reseedToolsAndSkills(): Promise<void> {
       preferred_agents: JSON.stringify(s.preferred_agents || []),
       body: s.content || "",
       version_num: parseInt(String(s.version || "0.0.1").split(".")[0]) || 1,
-      active: true,
-      created_at: now,
+      active: existingSkill?.doc.active ?? (iniciales ? iniciales.skills.has(s.name) : true),
+      created_at: existingSkill?.doc.created_at ?? now,
       updated_at: now,
     });
     skillCount++;
@@ -672,10 +712,30 @@ async function reseedToolsAndSkills(): Promise<void> {
   await pruneRetired();
 }
 
-export async function seedAllData(): Promise<void> {
-  log.info("[seed] 🌱 Iniciando seed de datos predeterminados...")
+/**
+ * Qué especialistas del catálogo crear en el arranque.
+ *
+ * - `"all"` — los 8. Comportamiento histórico y default.
+ * - `"none"` — ninguno. La colmena arranca con el coordinador y nada más; los
+ *   especialistas se crean cuando el usuario arma el enjambre que los pide.
+ *   Es el modo para un producto donde cada quien elige su equipo.
+ * - lista — sólo esos.
+ *
+ * **Nunca borra.** Los que ya existen en la base se siguen reconciliando en
+ * cada arranque, elija lo que elija: una instalación que ya tiene sus ocho
+ * agentes no los pierde por cambiar esta opción.
+ */
+export type SpecialistSeedMode = "all" | "none" | string[]
 
-  await reseedToolsAndSkills();
+export interface SeedOptions {
+  specialists?: SpecialistSeedMode
+}
+
+export async function seedAllData(opts?: SeedOptions): Promise<void> {
+  log.info("[seed] 🌱 Iniciando seed de datos predeterminados...")
+  const especialistas = opts?.specialists ?? "all"
+
+  await reseedToolsAndSkills(especialistas);
 
   try {
     const now = Date.now();
@@ -830,9 +890,22 @@ export async function seedAllData(): Promise<void> {
     // factory values from older releases are migrated in place.
     let catalogAgentCount = 0;
     let repairedCatalogSkills = 0;
+    const quiereEspecialista = (id: string) =>
+      especialistas === "all" ? true
+      : especialistas === "none" ? false
+      : especialistas.includes(id);
+
     for (const catalogAgent of createSeedCatalogAgents()) {
-      await putIfAbsent(agentsCol, catalogAgent.id, catalogAgent);
-      const existing = await agentsCol.get(catalogAgent.id);
+      // Sembrar sólo los elegidos, pero seguir reconciliando los que ya
+      // existan: la elección gobierna qué se CREA, nunca qué se conserva. Una
+      // base que ya trae los ocho no los pierde por arrancar con "none", y
+      // tampoco se queda sin las migraciones de abajo.
+      let existing = await agentsCol.get(catalogAgent.id);
+      if (!existing) {
+        if (!quiereEspecialista(catalogAgent.id)) continue;
+        await putIfAbsent(agentsCol, catalogAgent.id, catalogAgent);
+        existing = await agentsCol.get(catalogAgent.id);
+      }
       if (!existing || existing.doc.source !== "catalog") {
         catalogAgentCount++;
         continue;
@@ -925,12 +998,17 @@ export async function seedAllData(): Promise<void> {
       const existing = byRule.get(rule.rule);
       if (existing) {
         await playbookCol.put(existing.id, {
-          ...existing.doc, category: rule.category, applicable_to: rule.applicable_to, active: true, updated_at: now,
+          // `user_id: ""` va explícito y no heredado de `existing.doc`: en una
+          // base anterior a este campo las filas sembradas no lo tienen, y son
+          // justamente las que deben ser globales.
+          ...existing.doc, category: rule.category, applicable_to: rule.applicable_to, user_id: "", active: true, updated_at: now,
         }, { expectedVersion: existing.version });
       } else {
         const id = await nextId("playbook");
         await playbookCol.put(id, {
           id, rule: rule.rule, category: rule.category, applicable_to: rule.applicable_to,
+          // Conocimiento del producto, no aprendido de nadie: aplica a todos.
+          user_id: "",
           helpful_count: 1, harmful_count: 0, active: true,
           source_reflection_id: toIndexable(null), created_at: now, updated_at: now,
         });

@@ -22,6 +22,7 @@ export type { Skill, SkillStep, OutputFormat, SkillsConfig } from "./skills/inde
 export { runAgent, runAgentIsolated, AgentLoop, getAgentLoop, buildAgentLoop, rebuildAgentLoop } from "./agent/agent-loop.ts";
 export type { AgentLoopOptions, StepEvent, StreamChunk } from "./agent/agent-loop.ts";
 export type { Provider } from "./agent/providers/index.ts";
+export { AgentRunner, createAgentRunner } from "./agent/providers/index.ts";
 
 // El cliente LLM es parte de la superficie pública: hasta 0.1.5 sólo se exportaba
 // el wrapper `AgentRunner`, así que no había forma de llamar a un provider ni de
