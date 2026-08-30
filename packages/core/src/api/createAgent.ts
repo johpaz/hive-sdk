@@ -9,6 +9,7 @@
  */
 
 import { z } from "zod";
+import type { MCPClientManager } from "../mcp/index.ts";
 import type { ToolDefinition } from "../tools/ToolRegistry.ts";
 import type { SkillDefinition } from "../skills/defineSkill.ts";
 import type { Tool, ToolParameter } from "../tools/types.ts";
@@ -260,7 +261,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 	await syncCapabilityIndexes();
 
 	// ─── MCP ──────────────────────────────────────────────────────────────────
-	let mcpManager = null;
+	let mcpManager: MCPClientManager | null = null;
 	if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
 		const { MCPClientManager } = await import("../mcp/index.ts");
 		const mcpConfig = {

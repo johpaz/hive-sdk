@@ -561,13 +561,19 @@ const LEGACY_CRON_PERSONA = {
 function migrateLegacyCatalogPersona(existing: AgentDoc, current: AgentDoc): AgentDoc {
   if (existing.id !== LEGACY_CRON_PERSONA.id || existing.source !== "catalog") return existing;
 
-  let systemPrompt = existing.system_prompt;
+  // `system_prompt` es nullable en AgentDoc y esto corre en cada arranque: una
+  // fila sin prompt hacía estallar el seed entero con un TypeError, no un error
+  // de datos. Sin prompt no hay nada que migrar, así que se devuelve tal cual.
+  if (existing.system_prompt === null) return existing;
+
+  let systemPrompt: string = existing.system_prompt;
+  const currentPrompt = current.system_prompt ?? "";
   const hasLegacyStockPrompt = systemPrompt.includes(LEGACY_CRON_PERSONA.role)
     && systemPrompt.includes(LEGACY_CRON_PERSONA.receives);
   if (hasLegacyStockPrompt) {
     systemPrompt = systemPrompt
-      .replace(LEGACY_CRON_PERSONA.role, current.system_prompt.match(/# ROL\n([^\n]+)/)?.[1] ?? LEGACY_CRON_PERSONA.role)
-      .replace(LEGACY_CRON_PERSONA.receives, current.system_prompt.match(/# QUÉ RECIBES\n([^\n]+)/)?.[1] ?? LEGACY_CRON_PERSONA.receives);
+      .replace(LEGACY_CRON_PERSONA.role, currentPrompt.match(/# ROL\n([^\n]+)/)?.[1] ?? LEGACY_CRON_PERSONA.role)
+      .replace(LEGACY_CRON_PERSONA.receives, currentPrompt.match(/# QUÉ RECIBES\n([^\n]+)/)?.[1] ?? LEGACY_CRON_PERSONA.receives);
     if (!systemPrompt.includes(LEGACY_CRON_PERSONA.calendarProhibition)) {
       systemPrompt = systemPrompt.replace(
         "- No hablás con el usuario",

@@ -1378,12 +1378,12 @@ export class AgentLoop {
     // Resolve from database with priority: explicit param → DB lookup → single user/agent
     const threadId = config.configurable?.thread_id || (await resolveUserId({})) || "default"
     const agentId = config.configurable?.agent_id || (await resolveAgentId(config.configurable?.agent_id)) || (await this._resolveCoordinatorId()) || "main"
-    const systemPromptOverride = config.configurable?.system_prompt
+    const systemPromptOverride = config.configurable?.system_prompt ?? undefined
     const channel = config.configurable?.channel
     const userId = config.configurable?.user_id || (await resolveUserId({
       channel: config.configurable?.channel ? (config.configurable?.channel as string).split(':')[0] : null,
       channelUserId: config.configurable?.thread_id
-    }))
+    })) || undefined
 
     // Log MCP Manager status
     log.info(`[AgentLoop.stream] MCP Manager available: ${this.mcpManager !== null}`)
