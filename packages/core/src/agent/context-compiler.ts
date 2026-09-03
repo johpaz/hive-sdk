@@ -37,8 +37,8 @@ import { resolveUserId } from "../storage/onboarding.ts"
 import { getMCPManager as getSingletonMCPManager } from "../mcp/singleton.ts"
 import { syncMCPToolsToDB, syncMCPToolsToIndex } from "../mcp/tool-sync.ts"
 import { getUserDate, getUserTime } from "../utils/date.ts"
-import { loadConfig } from "../config/loader.ts"
 import { getHiveDb } from "../storage/hivedb.ts"
+import { causalReadsEnabled } from "../storage/causal-events.ts"
 import { listCatalogAgents, renderAgentRoutingCatalog } from "./catalog-selector.ts"
 import { expandToolAllowlist } from "./delegation-runtime.ts"
 import { MINIMAL_TOOLS } from "./minimal-loadout.ts"
@@ -588,7 +588,7 @@ export async function compileContext(opts: {
   // applies this turn (a real DB round-trip, not a per-turn cost) and
   // there's a causal stream to build it from. episodicSimilarity is omitted:
   // it requires embeddings hive doesn't generate anywhere yet.
-  if (summaryApplies && opts.causalStreamId && loadConfig().causalLog?.enabled) {
+  if (summaryApplies && opts.causalStreamId && causalReadsEnabled()) {
     try {
       const causalDb = await getHiveDb()
       const objectiveSource = taskContext || userMessage

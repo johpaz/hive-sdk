@@ -85,13 +85,19 @@ export async function reconcileOnBoot(bootId: string): Promise<ReconcileResult> 
     log.warn(`[reconcileOnBoot] Failed to repair meetings: ${(err as Error).message}`);
   }
 
-  // 3. agentRuns: any "running" row is orphaned at boot — HiveDB is
-  // single-process and this process just started, so no run can actually be
-  // executing. Waiting out the lease would leave fast restarts (< lease
-  // duration) unrepaired forever.
+  // 3. agentRuns: a "running" row is orphaned if it belongs to ANOTHER boot.
+  //
+  // Antes bastaba con mirar el estado: una base por enjambre más un proceso por
+  // turno garantizaban que al arrancar no podía haber ninguna corrida viva. Con
+  // la base compartida entre inquilinos esa premisa desaparece —este proceso
+  // atiende varios enjambres a la vez— y barrer por estado abortaría corridas
+  // realmente en vuelo. El `boot_id` de la fila es lo que distingue "muerta en
+  // un proceso anterior" de "viva aquí y ahora".
   try {
     const agentRunsCol = await col<AgentRunDoc>("agentRuns");
-    const runningRuns = await agentRunsCol.findBy("status", "running");
+    const runningRuns = (await agentRunsCol.findBy("status", "running")).filter(
+      (entry) => entry.doc.boot_id !== bootId
+    );
     for (const entry of runningRuns) {
       const run = entry.doc;
 
@@ -124,11 +130,13 @@ export async function reconcileOnBoot(bootId: string): Promise<ReconcileResult> 
     log.warn(`[reconcileOnBoot] Failed to repair agentRuns: ${(err as Error).message}`);
   }
 
-  // 4. jobQueue: any "running" row is orphaned at boot (same single-process
-  // argument as above) → reclaim (pending) or interrupt, ignoring the lease.
+  // 4. jobQueue: mismo criterio que arriba — sólo las filas de otro boot están
+  // realmente huérfanas → reclaim (pending) o interrupt, ignorando el lease.
   try {
     const jobsCol = await col<JobDoc>("jobQueue");
-    const runningJobs = await jobsCol.findBy("status", "running");
+    const runningJobs = (await jobsCol.findBy("status", "running")).filter(
+      (entry) => entry.doc.boot_id !== bootId
+    );
     for (const entry of runningJobs) {
       const job = entry.doc;
       const result_doc = await reclaimOrInterrupt(job.id, { force: true });

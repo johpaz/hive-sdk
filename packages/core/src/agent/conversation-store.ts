@@ -6,7 +6,6 @@
  */
 
 import { col, nextId, bumpRollup } from "../storage/hive.ts"
-import { getHiveDb } from "../storage/hivedb.ts"
 import { logger } from "../utils/logger.ts"
 import type { LLMMessage, ContentPart } from "./llm-client.ts"
 import { estimateTokens } from "../utils/toon.ts"
@@ -478,8 +477,9 @@ function scratchpadNoteId(threadId: string, key: string): string {
 }
 
 async function scratchpadCollection() {
-  const db = await getHiveDb()
-  return db.collection<ScratchpadDoc>("scratchpad")
+  // Vía `col()` y no `db.collection()` a pelo: es lo que aplica el prefijo de
+  // tenant y mantiene las notas de cada enjambre en su propia partición.
+  return col<ScratchpadDoc>("scratchpad")
 }
 
 export async function saveScratchpadNote(

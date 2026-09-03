@@ -11,6 +11,22 @@
 export { getHiveDbPath, getHiveDb, closeHiveDb } from "./hivedb.ts";
 export { ensureHiveDb, isBootstrapped } from "./bootstrap.ts";
 
+// ─── Aislamiento multi-inquilino ─────────────────────────────────────────────
+// Varios enjambres dentro de una sola HiveDB, prefijando el nombre de colección.
+// Sin tenant en scope todo se comporta como siempre — ver storage/tenant.ts.
+export {
+  runInTenant,
+  currentTenant,
+  requireTenant,
+  tenantKeyFromId,
+  isTenantKey,
+  qualify,
+  unqualify,
+  qualifyDocId,
+  unqualifyDocId,
+  scopedFilterValue,
+} from "./tenant.ts";
+
 // ─── Acceso a colecciones ────────────────────────────────────────────────────
 export {
   col,

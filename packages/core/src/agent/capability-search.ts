@@ -20,6 +20,7 @@
 
 import type { IndexDoc } from "@johpaz/hive-db";
 import { getHiveDb } from "../storage/hivedb.ts";
+import { currentTenant, qualifyDocId, unqualifyDocId, scopedFilterValue } from "../storage/tenant.ts";
 import { logger } from "../utils/logger.ts";
 
 const log = logger.child("capability-search");
@@ -87,12 +88,19 @@ export async function searchCapabilities(
 
   // Filters are AND-ed by the engine, so multi-type search runs one query per
   // type; the single-type and all-types cases are one engine call.
+  //
+  // El índice semántico es UNO solo para todos los inquilinos (no hay
+  // "colección" que prefijar), así que el tenant entra como un filtro más que
+  // el motor AND-ea con el resto. Sin tenant no se añade nada: así un índice ya
+  // construido por la app de escritorio sigue respondiendo igual.
+  const tenant = currentTenant();
+  const tenantFilter = tenant ? [{ field: "tenant", value: tenant }] : [];
   const queries = types
     ? types.map((t) => ({
         type: t,
-        filters: [{ field: "type", value: t }],
+        filters: [...tenantFilter, { field: "type", value: t }],
       }))
-    : [{ type: undefined, filters: undefined }];
+    : [{ type: undefined, filters: tenantFilter.length ? tenantFilter : undefined }];
 
   const merged = new Map<string, CapabilityHit>();
   for (const q of queries) {
@@ -103,12 +111,15 @@ export async function searchCapabilities(
       boosts: opts.boosts,
     });
     for (const hit of hits) {
-      const parsed = splitId(hit.id);
+      // El id indexado lleva el prefijo del tenant; quien consume esto espera
+      // el id canónico ("tool:web_search"), no la forma física.
+      const id = unqualifyDocId(hit.id);
+      const parsed = splitId(id);
       if (!parsed) continue;
-      const existing = merged.get(hit.id);
+      const existing = merged.get(id);
       if (!existing || hit.score > existing.score) {
-        merged.set(hit.id, {
-          id: hit.id,
+        merged.set(id, {
+          id,
           type: parsed.type,
           rawId: parsed.rawId,
           score: hit.score,
@@ -154,7 +165,15 @@ export async function replaceCapabilityDocs(
   docs: CapabilityDoc[]
 ): Promise<void> {
   const db = await getHiveDb();
-  await db.deleteByFilter({ field: "type", value: type });
+  // `deleteByFilter` acepta UN SOLO filtro, así que en una base compartida
+  // borrar por `type` se llevaría por delante los documentos de todos los
+  // inquilinos. El campo sintético `tenant__type` (ver scopedFilterValue)
+  // mantiene el borrado en un filtro y acotado a este tenant.
+  await db.deleteByFilter(
+    currentTenant()
+      ? { field: "tenant__type", value: scopedFilterValue(type) }
+      : { field: "type", value: type }
+  );
   if (docs.length === 0) return;
   await db.upsertBatch(docs.map(toIndexDoc));
 }
@@ -169,18 +188,38 @@ export async function upsertCapabilityDocs(docs: CapabilityDoc[]): Promise<void>
 /** Delete every MCP doc belonging to a server (hot-reload/disconnect). */
 export async function deleteCapabilitiesByServer(serverId: string): Promise<void> {
   const db = await getHiveDb();
-  await db.deleteByFilter({ field: "server_id", value: serverId });
+  await db.deleteByFilter(
+    currentTenant()
+      ? { field: "tenant__server_id", value: scopedFilterValue(serverId) }
+      : { field: "server_id", value: serverId }
+  );
 }
 
 function toIndexDoc(doc: CapabilityDoc): IndexDoc {
+  const extra = doc.extraFilters ?? [];
+  const tenant = currentTenant();
   return {
-    id: `${doc.type}:${doc.rawId}`,
+    id: qualifyDocId(`${doc.type}:${doc.rawId}`),
     name: doc.name,
     body: doc.body,
     tags: doc.tags,
     filters: [
       { field: "type", value: doc.type },
-      ...(doc.extraFilters ?? []),
+      ...extra,
+      // Con tenant activo, cada filtro lleva además un gemelo `tenant__<campo>`.
+      // Es lo que permite que los borrados masivos —que sólo aceptan un
+      // filtro— sigan acotados a este inquilino. Sin tenant no se emite nada,
+      // así que un índice ya construido conserva exactamente su forma.
+      ...(tenant
+        ? [
+            { field: "tenant", value: tenant },
+            { field: "tenant__type", value: scopedFilterValue(doc.type) },
+            ...extra.map((f) => ({
+              field: `tenant__${f.field}`,
+              value: scopedFilterValue(f.value),
+            })),
+          ]
+        : []),
     ],
   };
 }

@@ -7,9 +7,29 @@
  */
 
 import { getHiveDb } from "./hivedb.ts"
+import { currentTenant } from "./tenant.ts"
+import { loadConfig } from "../config/loader.ts"
 import type { Event, EventPattern } from "@johpaz/hive-db"
 
 export type { Event as CausalEvent, EventPattern as CausalEventPattern }
+
+/**
+ * ¿Se pueden hacer lecturas AGREGADAS del log causal en este contexto?
+ *
+ * `causalThread`, `buildAgentContext` y `toolStats` recorren todos los shards
+ * de la base y mezclan sus resultados (`log.rs` — `read_stream_all_agents` y
+ * `project::<P>()` para proyecciones con scope Agent). Sobre una base
+ * compartida eso devolvería hilos y estadísticas de otros inquilinos. Mientras
+ * el motor no exponga las variantes acotadas por agente, con un tenant activo
+ * estas lecturas se apagan: perder una señal de reflexión es aceptable, cruzar
+ * datos entre agencias no.
+ *
+ * La ESCRITURA (`append`) no entra aquí: va al shard del propio agente, y los
+ * agentes de Hive Cloud ya llevan el enjambre en el id.
+ */
+export function causalReadsEnabled(): boolean {
+  return !!loadConfig().causalLog?.enabled && !currentTenant()
+}
 
 /**
  * Live-tail causal events matching `pattern`. Forward-only: only events
@@ -32,6 +52,16 @@ export type { Event as CausalEvent, EventPattern as CausalEventPattern }
 export async function watchCausalEvents(
   pattern: EventPattern
 ): Promise<AsyncIterable<Event> & { close(): void }> {
+  // El log de eventos no tiene colecciones que prefijar: el aislamiento entre
+  // inquilinos lo da el shard por `agentId`. Un patrón sin `agentId` sobre una
+  // base compartida entregaría los eventos de todos los enjambres, así que se
+  // exige explícitamente en vez de filtrar a medias.
+  if (currentTenant() && !pattern.agentId) {
+    throw new Error(
+      "watchCausalEvents: con un tenant activo el patrón debe fijar agentId; " +
+        "un tail sin agente cruzaría eventos de otros inquilinos."
+    )
+  }
   const db = await getHiveDb()
   return db.events(pattern)
 }

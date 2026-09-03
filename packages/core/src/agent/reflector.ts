@@ -14,7 +14,7 @@
 import { logger } from "../utils/logger.ts"
 import { col, nextId } from "../storage/hive.ts"
 import { getHiveDb } from "../storage/hivedb.ts"
-import { loadConfig } from "../config/loader.ts"
+import { causalReadsEnabled } from "../storage/causal-events.ts"
 import type { HiveDB, ToolStats } from "@johpaz/hive-db"
 import type { TraceDoc, ReflectionDoc, CursorDoc } from "../storage/collections.ts"
 import { parseThreadId } from "./thread-id.ts"
@@ -70,7 +70,7 @@ export async function runReflector(): Promise<void> {
     // G9: when enabled, per-tool insights use whole-history stats from HiveDB's
     // event log (toolStats) instead of counters built from just this batch, and
     // causal threads add root-cause/learning-proposal insights on top.
-    const causalDb = loadConfig().causalLog?.enabled ? await getHiveDb() : null
+    const causalDb = causalReadsEnabled() ? await getHiveDb() : null
     const reflectionsCol = await col<ReflectionDoc>("reflections")
     let totalInsights = 0
 

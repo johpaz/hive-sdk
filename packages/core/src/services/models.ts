@@ -16,6 +16,7 @@
  */
 
 import { col, toIndexable, fromIndexable } from "../storage/hive.ts";
+import { qualify } from "../storage/tenant.ts";
 import { getHiveDb } from "../storage/hivedb.ts";
 import type { BatchOp } from "@johpaz/hive-db";
 import type { ModelDoc, AgentDoc } from "../storage/collections.ts";
@@ -161,12 +162,17 @@ export async function renameModel(id: string, nuevoNombre: string): Promise<Mode
   const afectados = await agentesCol.findBy("model_id", toIndexable(id));
 
   const db = await getHiveDb();
+  // `batch()` va contra el handle crudo de la base, así que no pasa por `col()`:
+  // los nombres de colección hay que resolverlos contra el tenant a mano o el
+  // rename escribiría en la partición de otro inquilino.
+  const MODELS = qualify("models");
+  const AGENTS = qualify("agents");
   const ops: BatchOp[] = [
-    { op: "put", collection: "models", id: nuevoId, doc },
-    ...(nuevoId !== id ? [{ op: "delete" as const, collection: "models", id }] : []),
+    { op: "put", collection: MODELS, id: nuevoId, doc },
+    ...(nuevoId !== id ? [{ op: "delete" as const, collection: MODELS, id }] : []),
     ...afectados.map((a) => ({
       op: "put" as const,
-      collection: "agents",
+      collection: AGENTS,
       id: a.id,
       doc: { ...a.doc, model_id: toIndexable(nuevoId), updated_at: Date.now() },
       expectedVersion: a.version,
