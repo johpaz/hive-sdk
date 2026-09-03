@@ -8,6 +8,7 @@
  */
 
 import { getHiveDb } from "./hivedb.ts";
+import { qualify } from "./tenant.ts";
 
 const MAX_RETRIES = 5;
 
@@ -32,9 +33,22 @@ export function fromIndexable(value: string | null | undefined): string | null {
   return value === NO_PARENT || value == null ? null : value;
 }
 
+/**
+ * Handle a una colección, resuelta contra el tenant activo.
+ *
+ * `qualify()` es lo que aísla a los inquilinos entre sí en una base compartida
+ * (ver storage/tenant.ts). Sin tenant en scope devuelve el nombre pelado, así
+ * que el modo local se comporta igual que siempre. Como todo el CRUD del SDK
+ * pasa por aquí —incluidos `nextId`, `updateDoc`, `updateManyByIndex`,
+ * `findByAny` y `bumpRollup`, más abajo— este es el único punto que hay que
+ * mantener honesto.
+ *
+ * El handle se construye en cada llamada a propósito: cachearlo en una variable
+ * de módulo lo dejaría atado al tenant que lo creó primero.
+ */
 export async function col<T>(name: string) {
   const db = await getHiveDb();
-  return db.collection<T>(name);
+  return db.collection<T>(qualify(name));
 }
 
 /**

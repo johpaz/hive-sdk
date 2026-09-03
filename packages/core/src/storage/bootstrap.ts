@@ -13,6 +13,7 @@
 
 import { getHiveDb, getOpenHiveDb } from "./hivedb.ts";
 import { col } from "./hive.ts";
+import { currentTenant } from "./tenant.ts";
 import { seedAllData, type SeedOptions } from "./seed.ts";
 import { ensureSecretsBackend } from "./crypto.ts";
 import { ensureLegacyThread } from "../agent/thread-store.ts";
@@ -136,6 +137,16 @@ async function ensureSeedData(opts?: SeedOptions): Promise<void> {
 // tests or long-running processes open a fresh instance in the same runtime.
 let bootstrappedDb: Awaited<ReturnType<typeof getHiveDb>> | null = null;
 
+// ...y, dentro de esa instancia, a un tenant concreto. Una sola base compartida
+// por muchos enjambres significa que "ya arrancó" no es una propiedad de la
+// base: el enjambre A puede tener sus 72 índices creados y el B ninguno.
+const bootstrappedTenants = new Set<string>();
+
+/** Clave de bootstrap del tenant activo ("_" en modo local/escritorio). */
+function bootstrapScope(): string {
+  return currentTenant() ?? "_";
+}
+
 /**
  * Antes de la separación por canal todos los canales compartían un solo hilo cuyo
  * `thread_id` era el `userId`. Esa conversación se registra —sin mover un solo
@@ -223,6 +234,16 @@ async function ensureLegacyThreads(): Promise<void> {
  */
 export async function ensureHiveDb(opts?: SeedOptions): Promise<void> {
   const db = await getHiveDb();
+  if (db !== bootstrappedDb) bootstrappedTenants.clear();
+  const scope = bootstrapScope();
+
+  // Con varios inquilinos en la misma base, esto se llama una vez por enjambre
+  // y por proceso, no una vez por proceso: repetir los ~72 `createIndex` más el
+  // seed en cada llamada es exactamente el coste que la consolidación viene a
+  // quitar. En modo local (sin tenant) no se cortocircuita nada, para conservar
+  // el "reseed en cada arranque" del que dependen los cambios de catálogo.
+  if (currentTenant() && bootstrappedDb === db && bootstrappedTenants.has(scope)) return;
+
   await ensureIndexes();
   // Mint the master key before anything can save an API key, so a fresh
   // install is durable from the first keystroke rather than after a restart
@@ -239,8 +260,13 @@ export async function ensureHiveDb(opts?: SeedOptions): Promise<void> {
   if (!existing) await meta.put("schemaVersion", { value: 1 }, { expectedVersion: 0 });
 
   bootstrappedDb = db;
+  bootstrappedTenants.add(scope);
 }
 
 export function isBootstrapped(): boolean {
-  return bootstrappedDb !== null && bootstrappedDb === getOpenHiveDb();
+  return (
+    bootstrappedDb !== null &&
+    bootstrappedDb === getOpenHiveDb() &&
+    bootstrappedTenants.has(bootstrapScope())
+  );
 }
