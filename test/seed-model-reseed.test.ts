@@ -108,10 +108,11 @@ describe("re-seed de modelos", () => {
   test("los ids de revendedor quedan prefijados y no colisionan", async () => {
     const modelsCol = await col<ModelDoc>("models");
 
-    // z-ai/glm-5.2 se sirve desde NVIDIA y desde OpenRouter: antes una fila
-    // pisaba a la otra porque la colección se indexaba sólo por model id.
-    const nvidia = await modelsCol.get("nvidia/z-ai/glm-5.2");
-    const openrouter = await modelsCol.get("openrouter/z-ai/glm-5.2");
+    // moonshotai/kimi-k3 se sirve desde NVIDIA y desde OpenRouter: antes una fila
+    // pisaba a la otra porque la colección se indexaba sólo por model id. El par
+    // original era z-ai/glm-5.2, que NVIDIA retiró de su catálogo.
+    const nvidia = await modelsCol.get("nvidia/moonshotai/kimi-k3");
+    const openrouter = await modelsCol.get("openrouter/moonshotai/kimi-k3");
 
     expect(nvidia?.doc.provider_id).toBe("nvidia");
     expect(openrouter?.doc.provider_id).toBe("openrouter");
