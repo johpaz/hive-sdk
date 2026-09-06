@@ -2,6 +2,22 @@
 
 ## Sin publicar
 
+### Plataforma y seguridad
+
+- Runtime mínimo actualizado a **Bun 1.4.2** en `engines`, CI, publicación y
+  aplicaciones generadas.
+- Compilador actualizado a **TypeScript 7.0.2**. Se adaptaron las fronteras de
+  streams SSE, opciones WebSocket de Bun y memoria de audio a los tipos nuevos,
+  sin desactivar el chequeo.
+- Corregidas las alertas altas de PDF.js y SheetJS; los lectores Office ahora
+  limitan tamaño, páginas, hojas, filas y tiempo de procesamiento, y PDF.js
+  desactiva scripting y evaluación dinámica.
+- Eliminada la cadena vulnerable `pptxgenjs > image-size`. Hive conserva sólo
+  el artefacto ESM oficial necesario para PPTX de texto, con licencia,
+  procedencia, hash y una prueba funcional del OOXML generado.
+- Añadidas las guías `docs/UPGRADING.md` y
+  `docs/SECURITY-GUARDRAILS.md` para operación y auditoría.
+
 ### Corregido
 
 - **`browser_scrape` extraía con una tool que no ve lo que el navegador
@@ -103,9 +119,9 @@
   runtime. `cron-parser` además ni siquiera se importaba: estaba declarada en
   los dos `package.json` y se la bajaba todo el que instalara el SDK.
 
-  `Bun.cron()` **no** sirve como reemplazo —evaluado contra el runtime 1.4.0—:
+  `Bun.cron()` **no** sirve como reemplazo —reevaluado contra Bun 1.4.2—:
   acepta sólo 5 campos, rechaza una fecha ISO como patrón (que es como se
-  agendan los jobs `one_shot`), ignora la zona horaria en `parse()`, y su handle
+  agendan los jobs `one_shot`), no acepta una zona distinta por job, y su handle
   no expone la próxima corrida, de donde sale `next_run_at` y con lo que se
   detectan las corridas perdidas al arrancar. Tampoco tiene equivalente de
   `protect`, `maxRuns`, `interval`, `startAt`/`stopAt` ni `domAndDow`, todos
@@ -227,7 +243,7 @@
   de una browser tool. Una versión flotante bajada de npm en runtime, en
   producción. Eso ya no existe.
 
-  Requisitos ahora: un Chromium instalado (o `BUN_CHROME_PATH`) y **Bun ≥ 1.4**,
+  Requisitos ahora: un Chromium instalado (o `BUN_CHROME_PATH`) y **Bun ≥ 1.4.2**,
   declarado en `engines`. La clave de config `tools.browser.backend` sobrevive:
   `"agent-browser"` se acepta, avisa una vez y usa el WebView, así que las
   configuraciones viejas no se rompen.
@@ -242,7 +258,7 @@
   —clic por coordenadas, escribir, navegar— cuando no hay un selector CSS
   estable (canvas, UIs generadas, visores embebidos).
 
-- CI actualizado a **Bun 1.4.0**, alineado con `hive`.
+- CI actualizado a **Bun 1.4.2**, alineado con `hive`.
 
 ### Quitado
 

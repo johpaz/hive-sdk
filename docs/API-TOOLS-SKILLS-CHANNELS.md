@@ -104,11 +104,11 @@ import {
 Las herramientas `browser_*` hablan con `BrowserBackend`, que hoy tiene una sola
 implementación: `Bun.WebView` in-process sobre un Chromium del sistema. No se
 instala ni se descarga nada — sólo hace falta un Chromium (o `BUN_CHROME_PATH`)
-y **Bun ≥ 1.4**, porque es el que lanza el navegador con `--headless` y permite
+y **Bun ≥ 1.4.2**, porque es el que lanza el navegador con `--headless` y permite
 correr en un servidor sin pantalla.
 
 > Antes existía un segundo backend por CLI (`agent-browser`). Se retiró: medido
-> en Bun 1.4 el WebView sí corre headless, que era la única razón para
+> en Bun 1.4.2 el WebView sí corre headless, que era la única razón para
 > mantenerlo, y lo que quedaba era su costo —~40 ms de `Bun.spawn` por operación
 > contra ~0,3 ms, ~88 MB con su propia copia de Chrome, y un
 > `bun add agent-browser@latest` ejecutado **en el entorno del consumidor** al

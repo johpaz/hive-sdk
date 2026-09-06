@@ -135,8 +135,8 @@ export class HiveAgentsProvider extends OpenAICompatBase {
     return new OpenAI({
       apiKey,
       baseURL,
-      fetch: async (url: RequestInfo | URL, init?: RequestInit) => {
-        const headers = new Headers(init?.headers as HeadersInit | undefined)
+      fetch: async (url: string | URL | Request, init?: RequestInit) => {
+        const headers = new Headers(init?.headers)
         for (const h of BLOCKED_HEADERS) headers.delete(h)
 
         // Debug: log exact request so we can replicate with curl

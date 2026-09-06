@@ -8,6 +8,11 @@ export interface WebSocketTransportConfig {
   reconnectMaxAttempts?: number; // máximo de intentos (default: 10)
 }
 
+type BunWebSocketConstructor = new (
+  url: string | URL,
+  options?: Bun.WebSocketOptions,
+) => WebSocket;
+
 export class WebSocketTransport implements Transport {
   private url: string;
   private ws: WebSocket | null = null;
@@ -40,15 +45,12 @@ export class WebSocketTransport implements Transport {
     return new Promise((resolve, reject) => {
 
       // CORRECCIÓN 1 — headers en Bun WebSocket
-      // Bun acepta las opciones como segundo argumento cuando no hay subprotocols,
-      // o como objeto con `headers` dentro de un array de subprotocols vacío.
-      // La forma más segura y compatible:
+      // Con la lib DOM activa, TypeScript expone sólo la sobrecarga estándar
+      // (subprotocols). El runtime de Bun acepta Bun.WebSocketOptions.
+      const BunWebSocket = WebSocket as unknown as BunWebSocketConstructor;
       const ws = this.headers && Object.keys(this.headers).length > 0
-        ? new WebSocket(this.url, {
-          // @ts-expect-error — Bun extiende la API estándar de WebSocket
-          headers: this.headers,
-        })
-        : new WebSocket(this.url);
+        ? new BunWebSocket(this.url, { headers: this.headers })
+        : new BunWebSocket(this.url);
 
       this.ws = ws;
       let resolved = false;

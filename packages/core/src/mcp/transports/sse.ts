@@ -6,6 +6,14 @@ export interface SSETransportConfig {
   headers?: Record<string, string>;
 }
 
+interface ByteStreamReader {
+  read(): Promise<{ done: boolean; value?: Uint8Array }>;
+}
+
+interface ByteStream {
+  getReader(): ByteStreamReader;
+}
+
 export class SSETransport implements Transport {
   private baseUrl: string;
   private messagesUrl: string | null = null; // Endpoint recibido del servidor
@@ -111,7 +119,7 @@ export class SSETransport implements Transport {
     }
   }
 
-  private startReading(stream: ReadableStream<Uint8Array>) {
+  private startReading(stream: ByteStream) {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -124,7 +132,7 @@ export class SSETransport implements Transport {
   }
 
   private async processStream(
-    reader: ReadableStreamDefaultReader<Uint8Array>,
+    reader: ByteStreamReader,
     decoder: TextDecoder,
     buffer: string
   ): Promise<void> {

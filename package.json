@@ -1,6 +1,6 @@
 {
   "name": "@johpaz/hive-sdk",
-  "version": "0.4.3",
+  "version": "0.4.5",
   "private": false,
   "description": "Hive SDK — The Agent Harness SDK. Build, deploy, and scale AI agent applications with multi-channel support, context engineering, and swarm orchestration.",
   "license": "MIT",
@@ -77,6 +77,8 @@
     "!packages/**/*.test.ts",
     "README.md",
     "CHANGELOG.md",
+    "SECURITY.md",
+    "docs",
     "LICENSE"
   ],
   "engines": {
@@ -103,7 +105,7 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@sapphire/snowflake": "^3.5.5",
     "@slack/bolt": "^4.7.2",
-    "@whiskeysockets/baileys": "7.0.0-rc11",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "async-mutex": "^0.5.0",
     "discord.js": "^14.26.4",
     "docx": "^9.6.1",
@@ -116,7 +118,6 @@
     "ollama": "^0.6.3",
     "openai": "^6.18.0",
     "pdfjs-dist": "^6.3.289",
-    "pptxgenjs": "^4.0.1",
     "qrcode-terminal": "^0.12.0",
     "toon-format-parser": "^1.1.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
@@ -125,6 +126,6 @@
   "devDependencies": {
     "@types/bun": "^1.4.1",
     "@types/jsonwebtoken": "^9.0.10",
-    "typescript": "6.0.2"
+    "typescript": "7.0.2"
   }
 }

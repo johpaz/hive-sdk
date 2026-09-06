@@ -13,18 +13,18 @@ import { CronScheduler, Cron, parseCronExpression } from "@johpaz/hive-sdk/sched
 ## Por qué un motor propio y no `Bun.cron()`
 
 Bun 1.4 trae `Bun.cron()` nativo y la pregunta se repite, así que acá está la
-respuesta medida contra el runtime instalado (1.4.0). `Bun.cron` **no alcanza**
+respuesta reevaluada contra el runtime soportado (1.4.2). `Bun.cron` **no alcanza**
 para lo que este scheduler ya expone y persiste en `CronJobDoc`:
 
-| Lo que hace falta | `Bun.cron` 1.4.0 |
+| Lo que hace falta | `Bun.cron` 1.4.2 |
 |---|---|
 | 6 campos (con segundos) | Falla: *"seconds are not supported"* |
 | Fecha ISO como patrón — así se agendan los `one_shot` | La rechaza: espera 5 campos |
-| Zona horaria | `parse()` ignora `{ timezone }`: no cambia el resultado ni da error |
+| Zona horaria por job | Usa la zona local del proceso; no acepta una zona distinta por job |
 | `nextRun()` — de ahí sale `next_run_at` | El handle es `{ cron, ref, stop, unref }` |
 | `pause()` / `resume()` | No existen |
 | `protect`, `maxRuns`, `interval`, `startAt`/`stopAt`, `domAndDow` | Sin equivalente |
-| Tipos | No está en `@types/bun` (1.3.13) |
+| Controles persistidos | Sin equivalente para la política completa de Hive |
 
 Sin fecha ISO no hay jobs de una sola vez, y sin zona horaria "todos los días a
 las 9" significa las 9 UTC para todo el mundo. Por eso el motor es propio: la

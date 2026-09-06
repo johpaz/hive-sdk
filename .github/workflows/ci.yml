@@ -25,6 +25,8 @@ jobs:
         with:
           bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
+      - name: Auditar dependencias
+        run: bun audit
       - run: bun run typecheck
       - name: Tests
         run: bun test --parallel --timeout 30000

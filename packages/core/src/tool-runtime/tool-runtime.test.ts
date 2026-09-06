@@ -20,23 +20,32 @@ describe("tool runtime worker pool", () => {
   });
 
   it("runs multiple tools in parallel through worker scheduling", async () => {
-    // Per-tool delay + threshold sized for CI headroom: worker spawn/scheduling
-    // overhead is roughly fixed, so a larger delay keeps that overhead a small
-    // fraction of the budget instead of dominating it on a loaded runner.
-    // Serial execution would take ~3x the delay; the threshold stays well
-    // under that so the assertion still proves parallelism, not just patience.
-    const TOOL_DELAY_MS = 200;
-    const PARALLEL_THRESHOLD_MS = 450;
+    // Medir el solapamiento y no el reloj: un umbral de tiempo se vuelve flaky
+    // cuando la suite entera corre con 16 procesos en un runner cargado.
+    //
+    // Y por lo mismo se afirma que hubo solapamiento, no que llegó a 3 exactos:
+    // con `bun test --parallel` hay tantos procesos como núcleos compitiendo, y
+    // las tres tareas de 50 ms se planifican con huecos, así que `maxActive`
+    // baja a 2 sin que nada esté mal. Lo que este test tiene que distinguir es
+    // "se ejecutaron en paralelo" de "se serializaron"; el número exacto lo
+    // decide el planificador del sistema operativo, no este código.
+    let active = 0;
+    let maxActive = 0;
 
     const tools: RuntimeTool[] = ["slow_a", "slow_b", "slow_c"].map((name) => ({
       name,
       execute: async () => {
-        await delay(TOOL_DELAY_MS);
-        return { name };
+        active++;
+        maxActive = Math.max(maxActive, active);
+        try {
+          await delay(50);
+          return { name };
+        } finally {
+          active--;
+        }
       },
     }));
 
-    const startedAt = performance.now();
     const results = await executeToolBatch({
       toolCalls: [
         toolCall("1", "slow_a"),
@@ -48,10 +57,10 @@ describe("tool runtime worker pool", () => {
       hiveConfig: loadConfig(),
       workerPool: { enabled: true, maxWorkers: 3, toolTimeoutMs: 5000, parallelToolCalls: true },
     });
-    const elapsed = performance.now() - startedAt;
 
     expect(results.map((result) => (result.result as any).name)).toEqual(["slow_a", "slow_b", "slow_c"]);
-    expect(elapsed).toBeLessThan(PARALLEL_THRESHOLD_MS);
+    expect(maxActive).toBeGreaterThan(1);
+    expect(maxActive).toBeLessThanOrEqual(3);
   });
 
   it("preserves input order when tools complete out of order", async () => {

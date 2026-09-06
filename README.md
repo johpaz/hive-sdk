@@ -18,7 +18,7 @@ bun add @johpaz/hive-sdk
 
 - **Agentes**: ciclo ReAct nativo con checkpoint durable, 16 providers LLM y descubrimiento de tools/skills por búsqueda BM25.
 - **Catálogo**: 18 providers y 110 modelos sembrados, cada uno con su precio por millón de tokens — una sola fuente de verdad para el costo.
-- **Tools**: 60 tools incluidas — filesystem, web search, browser automation (`Bun.WebView`), APIs (`api_request`), a2ui, office, cron, delegación.
+- **Tools**: 60 tools incluidas — filesystem, web search, browser automation (`Bun.WebView`), APIs (`api_request`), a2ui, office, cron, delegación. Las de office validan la entrada antes de parsear (PDF 25 MiB, XLSX 15 MiB, 200 páginas, 50 hojas, 10 000 filas por hoja, 30 s de tope) y devuelven un error de tool en vez de truncar en silencio — importa cuando el archivo lo sube un tercero. Ver [SECURITY-GUARDRAILS.md](./docs/SECURITY-GUARDRAILS.md).
 - **Skills**: 23 workflows bundled, más los tuyos con `defineSkill` y `SkillLoader`.
 - **Canales**: Telegram, Discord, WhatsApp, Slack y WebChat con `ChannelManager`.
 - **Swarm**: orquestación multi-agente con `DAGScheduler`, `TaskGraph` y `WorkerPool`.
@@ -38,11 +38,38 @@ mismo CRUD que usan las tools, en funciones tipadas.
 
 ## Instalación
 
-> **Requiere Bun.** El paquete se publica como TypeScript y usa APIs de Bun
+> **Requiere Bun 1.4.2 o posterior y TypeScript 7.0.2.** El paquete se publica como TypeScript y usa APIs de Bun
 > (`Bun.secrets`, `Bun.spawn`, Workers) en 18 archivos del core, así que no
 > corre sobre Node aunque se le apliquen los flags de type-stripping. Si tu
 > backend es Node, hoy la vía es un proceso Bun aparte; el build a JS que
 > levantaría esa restricción todavía no existe.
+
+### Compilar el SDK desde tu proyecto
+
+Como el paquete se publica **en TypeScript**, tu `tsc` no lee declaraciones ya
+validadas: recompila el código del SDK con **tu** configuración. Eso significa que
+`skipLibCheck` no ayuda —sólo salta archivos `.d.ts`, y acá son `.ts` de verdad— y
+que una config más estricta que la del SDK puede sacar errores en código que no
+escribiste.
+
+El SDK se mantiene compilable en los dos entornos de tipos que importan:
+
+| entorno | `lib` | `types` | `strict` | errores |
+|---|---|---|---|---|
+| el del SDK | `ESNext, DOM, DOM.Iterable` | — | `false` | 0 |
+| servidor (Bun) | `ES2022` | `["bun"]` | `true` | 0 |
+
+Para lograrlo, el core no usa alias que sólo existen en la lib DOM
+(`RequestInfo`, `HeadersInit`, `BlobPart`): las uniones van escritas. Si tu
+proyecto es un backend, no necesitás agregar `DOM` a tu `lib` para consumirlo
+—y no conviene, porque `BufferSource` y `BlobPart` de DOM chocan con
+`Uint8Array` y `Buffer` de Node en tu propio código.
+
+Los `*.test.ts` no se publican, así que nada de la suite entra en tu typecheck.
+
+Para actualizar un proyecto existente, consulta [UPGRADING.md](./docs/UPGRADING.md).
+Los límites de entrada y controles de runtime están inventariados en
+[SECURITY-GUARDRAILS.md](./docs/SECURITY-GUARDRAILS.md).
 
 ```bash
 # Instalar globalmente para el CLI
@@ -159,9 +186,14 @@ console.log(`Gateway at http://127.0.0.1:18790`);
 HIVE_HOME=~/.hive             # Directorio de datos (HiveDB vive en <HIVE_HOME>/data)
 HIVE_DB_PATH=                 # Ruta explícita de la base; ":memory:" para efímera
 HIVE_HOST=127.0.0.1           # Gateway host
-HIVE_PORT=18790               # Gateway port
+HIVE_PORT=18790               # Gateway port (inválido → avisa y usa el default)
 LOG_LEVEL=info                # debug | info | warn | error
 ```
+
+Desde Bun 1.4 `Bun.serve` lanza `RangeError` con un puerto fuera de `[0, 65535]`
+o con `NaN` —lo que devuelve `parseInt("no-es-un-numero")`— en vez de recortarlo,
+así que un `HIVE_PORT` mal escrito tumbaba el arranque con una excepción sin
+capturar. El SDK lo resuelve con `resolvePort`: avisa y sigue con el default.
 
 La API key de cada provider se guarda cifrada en la base. Como alternativa, el
 SDK cae a `<PROVIDER>_API_KEY` del entorno, en mayúsculas y con el id del
@@ -179,15 +211,24 @@ OPENROUTER_API_KEY=sk-or-...
 ## Tests
 
 ```bash
-# Todos los tests (paralelo)
+# Toda la suite
 bun test
 
-# Tests con timeout extendido
+# Repartida entre procesos, uno por núcleo
+bun test --parallel
+
+# Timeout extendido
 bun test --timeout 60000
 ```
 
+`--parallel` (Bun 1.4) reparte los archivos entre procesos e implica
+`--isolate`, un global nuevo por archivo. Medido en este repo: **48 s → 18 s**,
+con resultados idénticos. Es lo que corre CI; en local `bun test` a secas sigue
+siendo secuencial, que da una salida más legible cuando estás sobre un archivo.
+
 La suite usa una base efímera (`HIVE_DB_PATH=":memory:"`, fijado en
-`test/preload.ts`) para no escribir en la del usuario.
+`test/preload.ts`) para no escribir en la del usuario. El `preload` sigue
+corriendo por archivo bajo `--isolate`.
 
 ## Publicar
 
@@ -230,4 +271,4 @@ npm view @johpaz/hive-sdk dist-tags   # verificar después del release
 
 ---
 
-*Hive SDK v0.4.3 — MIT*
+*Hive SDK v0.4.5 — MIT*

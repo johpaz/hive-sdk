@@ -285,7 +285,7 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 
 	const { runAgent } = await import("../agent/agent-loop.ts");
 
-	return {
+	const agente: Agent = {
 		name: config.name,
 		id: agentId,
 		config,
@@ -340,13 +340,15 @@ export async function createAgent(config: AgentConfig): Promise<Agent> {
 			// El loop emite el texto acumulado del turno, no deltas: quedarse con el
 			// último evento evita duplicar la respuesta al concatenar.
 			let response = "";
-			for await (const event of this.chat(task, opts)) {
+			for await (const event of agente.chat(task, opts)) {
 				if (event.type === "text") response = event.content;
 				if (event.type === "done" && event.response) response = event.response;
 			}
 			return response;
 		},
 	};
+
+	return agente;
 }
 
 function safeParse(raw: string): Record<string, unknown> {
