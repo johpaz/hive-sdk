@@ -60,7 +60,9 @@ export const officeEscribirPptxTool: Tool = {
     log.debug(`Generando PPTX: ${ruta}`);
 
     try {
-      const pptxgen = (await import("pptxgenjs")).default;
+      // PptxGenJS 4.0.1 ESM is vendored without its unused image parser.
+      // Keep this tool text-only; image support requires a new security review.
+      const pptxgen = (await import("../../vendor/pptxgenjs/pptxgen.es.js")).default;
       const pres = new pptxgen();
 
       // Configuración básica

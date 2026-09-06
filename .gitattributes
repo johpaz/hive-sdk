@@ -1,0 +1,2 @@
+# Preserve the byte-identical upstream artifact and avoid line-ending rewrites.
+packages/core/src/vendor/pptxgenjs/pptxgen.es.js -text -diff

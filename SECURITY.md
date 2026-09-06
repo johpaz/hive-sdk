@@ -1,21 +1,14 @@
 # Security policy
 
-## Dependency audit exceptions
+## Vendored security-sensitive dependencies
 
-### `image-size` through `pptxgenjs@4.0.1`
+### PptxGenJS 4.0.1 ESM
 
-`image-size@1.2.1` is reported by GHSA-w3rx-r6r6-pgpr and
-GHSA-5p2g-fcmc-qvqq. No patched `image-size` release is currently available.
+Hive vendors the official PptxGenJS 4.0.1 ESM artifact for the text-only
+`office_escribir_pptx` tool. The upstream npm package declares the vulnerable
+`image-size` package even though its ESM artifact does not import it. Vendoring
+that artifact removes `image-size` from Hive's installable dependency graph.
 
-Hive retains `pptxgenjs` because this dependency is not reachable in the current
-Office tool:
-
-- `office_escribir_pptx` accepts text, bullet points, and speaker notes only.
-- It never calls `addImage` or passes image paths or buffers to `pptxgenjs`.
-- The published `pptxgenjs@4.0.1` runtime does not import `image-size` along this
-  generation path.
-
-This is a documented, temporary audit exception rather than a claim that the
-dependency itself is safe. Reassess it before adding PPTX image support, after a
-`pptxgenjs` upgrade, or when a patched `image-size` release becomes available.
-Review due: 2026-12-05.
+The vendored copy, license, provenance, and update instructions live in
+`packages/core/src/vendor/pptxgenjs/`. Do not expose PPTX image input without a
+new security review.

@@ -53,7 +53,6 @@
     "ollama": "^0.6.3",
     "openai": "^6.18.0",
     "pdfjs-dist": "^6.3.289",
-    "pptxgenjs": "^4.0.1",
     "qrcode-terminal": "^0.12.0",
     "toon-format-parser": "^1.1.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
