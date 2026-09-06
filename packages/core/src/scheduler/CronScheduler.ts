@@ -7,9 +7,11 @@
  * El motor de cron es propio (`./cron`), sin dependencias: sólo `setTimeout` e
  * `Intl` del runtime. Antes era `croner`.
  *
- * `Bun.cron()` no sirve como reemplazo —se evaluó contra el runtime 1.4.0—:
+ * `Bun.cron()` no sirve como reemplazo —reevaluado contra el runtime 1.4.2—:
  * acepta sólo 5 campos y rechaza el sexto, no admite una fecha ISO como patrón
- * (que es como se agendan los jobs `one_shot`), ignora la zona horaria, y su
+ * (que es como se agendan los jobs `one_shot`), no toma una zona por job (usa la
+ * local del proceso desde 1.4; antes era UTC, y ese cambio silencioso es
+ * justamente por qué no conviene delegarle la conversión), y su
  * handle no expone la próxima corrida, que es de donde sale `next_run_at` y con
  * lo que se detectan las corridas perdidas al arrancar. Tampoco tiene
  * equivalente de `protect`, `maxRuns`, `interval`, `startAt`/`stopAt` ni
