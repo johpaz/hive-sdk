@@ -271,4 +271,4 @@ npm view @johpaz/hive-sdk dist-tags   # verificar después del release
 
 ---
 
-*Hive SDK v0.4.4 — MIT*
+*Hive SDK v0.4.5 — MIT*
