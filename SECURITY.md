@@ -1,5 +1,8 @@
 # Security policy
 
+Los controles de entrada, dependencias, runtime y publicación están
+documentados en [`docs/SECURITY-GUARDRAILS.md`](docs/SECURITY-GUARDRAILS.md).
+
 ## Vendored security-sensitive dependencies
 
 ### PptxGenJS 4.0.1 ESM

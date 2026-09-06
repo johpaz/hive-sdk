@@ -13,6 +13,19 @@ import type { ContentPart } from "../../multimodal/types.ts"
 import type { TurnSource } from "../../storage/collections.ts"
 import type { MCPClientManager } from "../../mcp/index.ts"
 
+/**
+ * Bloque de contenido de un mensaje del loop.
+ *
+ * El mensaje llega con `content` laxo (`string` o arreglo), y acá sólo se
+ * consumen los bloques de texto. Declarar la forma quita el `any` implícito
+ * del filtro y, de paso, el `as any` que hacía falta para leer `.text`.
+ * Bajo el `strict: false` de este repo el `any` era invisible; en un
+ * consumidor que compile en estricto es un error, y el SDK se publica en
+ * fuente, así que lo compilan con SU configuración.
+ */
+interface ContentBlock { type?: string }
+interface TextBlock extends ContentBlock { type: "text"; text: string }
+
 export type Provider = "openai" | "anthropic" | "gemini" | "mistral" | "kimi" | "ollama" | "openrouter" | "deepseek" | "nvidia" | "hiveagents" | "z-ai" | "modelscope" | "minimax" | "qwen" | "groq" | "opencode-go"
 
 export interface StepEvent {
@@ -164,7 +177,10 @@ export class AgentRunner {
             const content = typeof lastMsg.content === "string" 
               ? lastMsg.content 
               : Array.isArray(lastMsg.content)
-                ? lastMsg.content.filter(p => p.type === "text").map(p => (p as any).text).join("\n")
+                ? (lastMsg.content as ContentBlock[])
+                    .filter((p): p is TextBlock => p.type === "text")
+                    .map((p) => p.text)
+                    .join("\n")
                 : ""
             lastAgentContent = content
             // Accumulate non-empty content that's not just whitespace

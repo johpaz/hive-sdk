@@ -62,6 +62,6 @@
     "@types/jsonwebtoken": "^9.0.10"
   },
   "peerDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "^7.0.2"
   }
 }

@@ -165,7 +165,7 @@ class VoiceService {
       throw new Error("GROQ_API_KEY not configured. Configúrala en Proveedores o en las variables de entorno.");
     }
 
-    let audioData: ArrayBuffer | Uint8Array;
+    let audioData: Uint8Array<ArrayBuffer>;
     
     if (audio.type === "buffer") {
       audioData = new Uint8Array((audio.data as Buffer));
@@ -187,7 +187,7 @@ class VoiceService {
       : mime.includes("wav") ? "wav"
       : mime.includes("flac") ? "flac"
       : "ogg";
-    const blob = new Blob([audioData as BlobPart], { type: mime });
+    const blob = new Blob([audioData], { type: mime });
     const formData = new FormData();
     formData.append("file", blob, `audio.${ext}`);
     formData.append("model", modelId);
@@ -217,7 +217,7 @@ class VoiceService {
       throw new Error("OPENAI_API_KEY not configured. Configúrala en Proveedores o en las variables de entorno.");
     }
 
-    let audioData: ArrayBuffer | Uint8Array;
+    let audioData: Uint8Array<ArrayBuffer>;
     
     if (audio.type === "buffer") {
       audioData = new Uint8Array(audio.data as Buffer);
@@ -232,7 +232,7 @@ class VoiceService {
       throw new Error("Invalid audio input type");
     }
 
-    const blob = new Blob([audioData as BlobPart], { type: audio.mimeType || "audio/webm" });
+    const blob = new Blob([audioData], { type: audio.mimeType || "audio/webm" });
     const formData = new FormData();
     formData.append("file", blob, "audio.webm");
 

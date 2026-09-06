@@ -77,6 +77,8 @@
     "!packages/**/*.test.ts",
     "README.md",
     "CHANGELOG.md",
+    "SECURITY.md",
+    "docs",
     "LICENSE"
   ],
   "engines": {
@@ -124,6 +126,6 @@
   "devDependencies": {
     "@types/bun": "^1.4.1",
     "@types/jsonwebtoken": "^9.0.10",
-    "typescript": "6.0.2"
+    "typescript": "7.0.2"
   }
 }

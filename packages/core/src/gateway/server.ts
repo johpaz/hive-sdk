@@ -98,7 +98,7 @@ async function handleChat(
   mcpManager?: MCPClientManager | null
 ): Promise<Response> {
   try {
-    const body = await req.json();
+    const body = (await req.json()) as { message?: string; threadId?: string };
     const message = body.message ?? "";
     const threadId = body.threadId ?? crypto.randomUUID();
 

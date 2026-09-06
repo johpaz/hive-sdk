@@ -100,7 +100,9 @@ async function runTool(message: WorkerRunMessage): Promise<void> {
   }
 }
 
-onmessage = (event: MessageEvent<WorkerRunMessage | WorkerRpcResponse>) => {
+declare const self: Worker
+
+self.onmessage = (event: MessageEvent<WorkerRunMessage | WorkerRpcResponse>) => {
   const message = event.data
 
   if (message.type === "rpc_result") {

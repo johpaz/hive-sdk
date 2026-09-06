@@ -5,6 +5,8 @@
 | Documento | Descripción |
 |-----------|-------------|
 | [README.md](../README.md) | Introducción, instalación, CLI, guía rápida |
+| [UPGRADING.md](./UPGRADING.md) | Migración a Bun 1.4.2 y TypeScript 7.0.2 |
+| [SECURITY-GUARDRAILS.md](./SECURITY-GUARDRAILS.md) | Límites de archivos, dependencias, runtime y controles de publicación |
 | [API-HOOKS.md](./API-HOOKS.md) | Engancharse al ciclo de vida: bloquear una tool, auditar, observar la compactación |
 | [API-ARTIFACTS.md](./API-ARTIFACTS.md) | Archivos fuera de la ventana de contexto, y su retención |
 | [API-RESILIENCE.md](./API-RESILIENCE.md) | Reintentos con backoff y circuit breakers |
