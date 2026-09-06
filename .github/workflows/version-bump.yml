@@ -72,7 +72,7 @@ jobs:
         run: bun run typecheck
 
       - name: Run tests
-        run: bun test --timeout 30000
+        run: bun test --parallel --timeout 30000
 
       # Mismo conjunto de archivos que scripts/bump-version.ts, para que los dos
       # caminos dejen el árbol igual.

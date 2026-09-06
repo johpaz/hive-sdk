@@ -27,7 +27,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - name: Tests
-        run: bun test --timeout 30000
+        run: bun test --parallel --timeout 30000
       - name: Verificar que la suite no tocó la base real
         shell: bash
         run: |
