@@ -36,7 +36,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.4.0"
+          bun-version: "1.4.2"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -47,7 +47,7 @@ jobs:
       # `bun test` a secas: la mayoría de la suite vive en test/, no sólo en
       # packages/core/src/. Limitarlo a src/ dejaba 24 archivos sin correr.
       - name: Run tests
-        run: bun test --timeout 30000
+        run: bun test --parallel --timeout 30000
 
       - name: Resolve version and dist-tag
         id: meta

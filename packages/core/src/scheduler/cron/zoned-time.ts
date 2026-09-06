@@ -2,7 +2,8 @@
  * Reloj de pared ↔ instante, en una zona horaria IANA.
  *
  * Es la parte difícil de un cron con zona horaria y la razón por la que no
- * alcanza con `Bun.cron.parse()`, que sólo trabaja en UTC. "Todos los días a
+ * alcanza con `Bun.cron.parse()`, que resuelve en una sola zona —UTC hasta Bun
+ * 1.3, la local del proceso desde 1.4— y nunca en la del job. "Todos los días a
  * las 9" significa las 9 **del reloj de la pared en Bogotá**, y ese instante se
  * corre una hora dos veces al año en las zonas con horario de verano. Calcular
  * el offset una sola vez y sumarlo produce un cron que se desfasa un día al año

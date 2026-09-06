@@ -8,7 +8,8 @@
  * habría sido migrar la base para no ganar nada.
  *
  * No usa `Bun.cron()`: ese sólo acepta 5 campos, no admite una fecha ISO como
- * patrón —que es como se agendan los jobs `one_shot`—, ignora la zona horaria y
+ * patrón —que es como se agendan los jobs `one_shot`—, no toma una zona por job
+ * (usa la local del proceso desde Bun 1.4; antes era UTC) y
  * su handle no expone la próxima corrida, que es de donde sale `next_run_at` y
  * con lo que el scheduler detecta las corridas perdidas al arrancar. Lo que sí
  * se usa de Bun es el runtime pelado: `setTimeout` e `Intl`.

@@ -17,9 +17,18 @@
 process.env.HIVE_DB_PATH = ":memory:";
 
 import { describe, test, expect } from "bun:test";
-import { createAllTools } from "../packages/core/src/tools/index";
+import { createAllTools, clearAppTools } from "../packages/core/src/tools/index";
 import { CORE_TOOL_CATALOG } from "../packages/core/src/agent/tool-selector";
 import { SEED_DATA } from "../packages/core/src/storage/seed";
+
+// `createAllTools()` termina con `...listAppTools()`, un Map mutable a nivel de
+// módulo que llena `registerAppTool()` — el punto de extensión para que la app
+// que consume el SDK aporte sus tools. Esas, por diseño, NO están en
+// CORE_TOOL_CATALOG ni en SEED_DATA.tools: son de quien consume, no del SDK.
+// Si algo las registró antes de que corra este archivo, los dos chequeos de
+// abajo las cuentan como "ejecutor sin indexar" y fallan sin que haya nada roto.
+// Este archivo audita el inventario estático, así que arranca de cero.
+clearAppTools();
 
 const executors = new Set(createAllTools({ tools: {} } as never).map((t) => t.name));
 const catalog = new Set(CORE_TOOL_CATALOG.map((t) => t.name));

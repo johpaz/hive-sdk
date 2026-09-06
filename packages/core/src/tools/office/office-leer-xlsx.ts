@@ -11,6 +11,14 @@ import { logger } from "../../utils/logger.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { cargarXlsx } from "./xlsx-loader.ts";
+import {
+  assertBeforeDeadline,
+  MAX_XLSX_INPUT_BYTES,
+  MAX_XLSX_ROWS_PER_SHEET,
+  MAX_XLSX_SHEETS,
+  OFFICE_PROCESSING_TIMEOUT_MS,
+  validateOfficeInput,
+} from "./security-limits.ts";
 
 const log = logger.child("office-leer-xlsx");
 
@@ -56,30 +64,41 @@ export const officeLeerXlsxTool: Tool = {
         return { ok: false, error: `Archivo no encontrado: ${rutaAbsoluta}` };
       }
 
+      const inputError = validateOfficeInput(
+        rutaAbsoluta,
+        MAX_XLSX_INPUT_BYTES,
+        "El XLSX",
+      );
+      if (inputError) return { ok: false, error: inputError };
+
       const XLSX = await cargarXlsx();
       const buffer = fs.readFileSync(rutaAbsoluta);
-      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const deadline = Date.now() + OFFICE_PROCESSING_TIMEOUT_MS;
+      const workbook = XLSX.read(buffer, {
+        type: "buffer",
+        sheetRows: MAX_XLSX_ROWS_PER_SHEET + 2,
+        sheets: hojaFiltro,
+      });
 
       const nombresHojas = hojaFiltro
         ? [hojaFiltro]
         : workbook.SheetNames;
 
+      if (nombresHojas.length > MAX_XLSX_SHEETS) {
+        return {
+          ok: false,
+          error: `El XLSX contiene más de ${MAX_XLSX_SHEETS} hojas`,
+        };
+      }
+
       const hojas: Record<string, any[]> = {};
 
       for (const nombreHoja of nombresHojas) {
+        assertBeforeDeadline(deadline, "La lectura del XLSX");
         const hoja = workbook.Sheets[nombreHoja];
         if (!hoja) {
           log.warn(`Hoja '${nombreHoja}' no encontrada en el archivo`);
           continue;
-        }
-
-        const opciones: any = {
-          header: incluirEncabezados ? 1 : 1,
-          defval: "",
-        };
-
-        if (rango) {
-          opciones.range = rango;
         }
 
         if (incluirEncabezados) {
@@ -95,6 +114,13 @@ export const officeLeerXlsxTool: Tool = {
             defval: "",
             range: rango,
           });
+        }
+
+        if (hojas[nombreHoja].length > MAX_XLSX_ROWS_PER_SHEET) {
+          return {
+            ok: false,
+            error: `La hoja '${nombreHoja}' supera el máximo de 10.000 filas`,
+          };
         }
       }
 

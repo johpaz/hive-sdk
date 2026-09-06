@@ -23,11 +23,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.4.0"
+          bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - name: Tests
-        run: bun test --timeout 30000
+        run: bun test --parallel --timeout 30000
       - name: Verificar que la suite no tocó la base real
         shell: bash
         run: |
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.4.0"
+          bun-version: "1.4.2"
       - run: bun install --frozen-lockfile
       - name: Generar una app y typecheckearla contra el SDK de este commit
         shell: bash
