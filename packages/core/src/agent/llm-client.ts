@@ -97,6 +97,13 @@ export interface LLMCallOptions {
   signal?: AbortSignal
   /** Enable extended thinking for supported models (Anthropic Claude 3.7+). */
   thinking?: { enabled: boolean; budget_tokens?: number }
+  /**
+   * Stable id of the conversation this call belongs to (the agent loop's
+   * threadId). Providers that route or cache per session derive their own
+   * header from it — OpenCode Go's `x-opencode-session` — and never send it
+   * verbatim, since it carries user, channel and peer ids.
+   */
+  sessionId?: string
 }
 
 export interface LLMResponse {
@@ -214,6 +221,14 @@ export function describeProviderFailure(
   provider: string,
   cleanModel: string,
 ): string {
+  // NVIDIA usa 404 también para modelos que siguen en su catálogo público pero
+  // no están habilitados para esa key ("Function '…': Not found for account
+  // '…'"). Decir que "se retiró" mandaba a buscar un modelo que sí existe.
+  if (status === 404 && /not found for account/i.test((err as Error)?.message ?? "")) {
+    return `Tu cuenta de ${provider} no tiene habilitado el modelo "${cleanModel}" (HTTP 404): `
+      + `figura en su catálogo, pero no está disponible para esta API key. `
+      + `Elige otro modelo en Ajustes → Proveedores.`
+  }
   if (status === 404 || status === 410) {
     return `El modelo "${cleanModel}" ya no existe en ${provider} (HTTP ${status}). `
       + `El proveedor lo retiró de su catálogo; reintentar no sirve. `

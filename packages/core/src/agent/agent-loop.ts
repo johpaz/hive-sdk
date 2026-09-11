@@ -521,6 +521,7 @@ export async function* runAgent(
         messages: clearOldToolResults(messages) as LLMMessage[],
         tools: ctx.tools.length > 0 ? ctx.tools : undefined,
         signal: opts.signal,
+        sessionId: opts.threadId,
         onToken: opts.onToken && !delegationGroupAtCall
           ? (token: string) => {
             streamedThisCall = true
@@ -1133,6 +1134,7 @@ export async function* runAgent(
         ...providerCfg,
         messages: clearOldToolResults(messages) as LLMMessage[],
         tools: undefined, // no tools — force text response
+        sessionId: opts.threadId,
       })
       if (synthesis.usage) {
         totalInputTokens += synthesis.usage.input_tokens

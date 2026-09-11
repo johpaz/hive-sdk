@@ -266,7 +266,9 @@ export const SEED_DATA: SeedData = {
     { id: "z-ai/glm-5.3-flash", providerId: "openrouter", name: "GLM 5.3 Flash (OR)", modelType: "llm", contextWindow: 1310720, capabilities: JSON.stringify(["chat", "vision", "json_mode", "function_calling", "streaming", "code", "reasoning"]), inputPer1M: 0.075, outputPer1M: 0.25 },
     { id: "z-ai/glm-5.2", providerId: "openrouter", name: "GLM 5.2 (OR)", modelType: "llm", contextWindow: 1048576, capabilities: JSON.stringify(["chat", "json_mode", "function_calling", "streaming", "code", "reasoning"]), inputPer1M: 0.966, outputPer1M: 3.036 },
     // Qwen
-    { id: "qwen/qwen3.8-max", providerId: "openrouter", name: "Qwen3.8 Max (OR)", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 2, outputPer1M: 6 },
+    // OpenRouter renombró qwen/qwen3.8-max a su versión fechada: mismo contexto
+    // y precio, ahora también con imagen. Verificado 2026-09-10.
+    { id: "qwen/qwen3.8-max-0902", providerId: "openrouter", name: "Qwen3.8 Max (OR)", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "vision", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 2, outputPer1M: 6 },
     { id: "qwen/qwen3.8-flash", providerId: "openrouter", name: "Qwen3.8 Flash (OR)", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "vision", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0.15, outputPer1M: 0.47 },
     { id: "qwen/qwen3.7-flash", providerId: "openrouter", name: "Qwen3.7 Flash (OR)", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "json_mode", "function_calling", "streaming"]), inputPer1M: 0.03, outputPer1M: 0.13 },
     // xAI
@@ -334,8 +336,10 @@ export const SEED_DATA: SeedData = {
     // provider `z-ai` directo, o el enrutado de OpenRouter.
     { id: "moonshotai/kimi-k3", providerId: "nvidia", name: "Kimi K3 (NVIDIA)", modelType: "llm", contextWindow: 262144, capabilities: JSON.stringify(["chat", "code", "vision", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
     { id: "nvidia/nemotron-3.5-lightning-30b-a3b", providerId: "nvidia", name: "Nemotron 3.5 Lightning 30B", modelType: "llm", contextWindow: 262144, capabilities: JSON.stringify(["chat", "code", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
-    { id: "moonshotai/kimi-k2.6", providerId: "nvidia", name: "Kimi K2.6 (NVIDIA)", modelType: "llm", contextWindow: 262144, capabilities: JSON.stringify(["chat", "code", "vision", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
-    { id: "minimaxai/minimax-m3", providerId: "nvidia", name: "MiniMax M3 (NVIDIA)", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "code", "vision", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
+    // MiniMax M3 (minimaxai/minimax-m3) se sacó: NVIDIA lo retiró (410 Gone, ya
+    // no figura en /v1/models). Kimi K2.6 (moonshotai/kimi-k2.6) se sacó por lo
+    // mismo que DeepSeek V4 Pro: 404 "Function not found for account" en dos
+    // cuentas distintas. Verificado 2026-09-10.
     { id: "nvidia/nemotron-3-ultra-550b-a55b", providerId: "nvidia", name: "Nemotron 3 Ultra 550B", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "code", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
     { id: "nvidia/nemotron-3-super-120b-a12b", providerId: "nvidia", name: "Nemotron 3 Super 120B", modelType: "llm", contextWindow: 1000000, capabilities: JSON.stringify(["chat", "code", "json_mode", "function_calling", "streaming", "reasoning"]), inputPer1M: 0, outputPer1M: 0 },
     // DeepSeek V4 Pro (deepseek-ai/deepseek-v4-pro) se sacó: devuelve 404
