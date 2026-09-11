@@ -7,7 +7,7 @@
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
         "@google/genai": "^1.43.0",
-        "@johpaz/hive-db": "^0.4.0",
+        "@johpaz/hive-db": "^0.5.1",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@sapphire/snowflake": "^3.5.5",
         "@slack/bolt": "^4.7.2",
@@ -37,7 +37,7 @@
     },
     "packages/cli": {
       "name": "@hive/cli",
-      "version": "0.4.4",
+      "version": "0.4.5",
       "bin": {
         "hive": "./src/index.ts",
       },
@@ -47,11 +47,11 @@
     },
     "packages/core": {
       "name": "@hive/core",
-      "version": "0.4.4",
+      "version": "0.4.5",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.74.0",
         "@google/genai": "^1.43.0",
-        "@johpaz/hive-db": "^0.4.0",
+        "@johpaz/hive-db": "^0.5.1",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@sapphire/snowflake": "^3.5.5",
         "@slack/bolt": "^4.7.2",
@@ -176,19 +176,19 @@
 
     "@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.3", "", { "os": "win32", "cpu": "x64" }, "sha512-D4y1vNeZrIIJCN+uHaWVtH86B+aCrdMYYjicy9pXHvbGZeGYLLSd3wdVuC37FxVXlU1ARsk84eKWfWMXGYEqvA=="],
 
-    "@johpaz/hive-db": ["@johpaz/hive-db@0.4.0", "", { "optionalDependencies": { "@johpaz/hive-db-darwin-arm64": "0.4.0", "@johpaz/hive-db-darwin-x64": "0.4.0", "@johpaz/hive-db-linux-arm64-gnu": "0.4.0", "@johpaz/hive-db-linux-x64-gnu": "0.4.0", "@johpaz/hive-db-linux-x64-musl": "0.4.0", "@johpaz/hive-db-win32-x64-msvc": "0.4.0" } }, "sha512-iANtaKI2K4FgquPlFOaU6PP4BCuWkJ5OmBlhPtV1COL+OYj+DT1OVeiEQlh1vo82aPRCGjiw3Ik1HHT8IXpqTQ=="],
+    "@johpaz/hive-db": ["@johpaz/hive-db@0.5.1", "", { "optionalDependencies": { "@johpaz/hive-db-darwin-arm64": "0.5.1", "@johpaz/hive-db-darwin-x64": "0.5.1", "@johpaz/hive-db-linux-arm64-gnu": "0.5.1", "@johpaz/hive-db-linux-x64-gnu": "0.5.1", "@johpaz/hive-db-linux-x64-musl": "0.5.1", "@johpaz/hive-db-win32-x64-msvc": "0.5.1" } }, "sha512-fv/cTfgHsVFiHk/G9mS6pCJdm6Z/L+0eRp5/T9g521ZESfGnwhBuX+gy+DNoPggWDfZQIpRYzIylG2eCZKRNhA=="],
 
-    "@johpaz/hive-db-darwin-arm64": ["@johpaz/hive-db-darwin-arm64@0.4.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-HTjWhkthLtWvmmYwFV2zXz0fAFnRQtdqUxp1MFGuO8h5rzSE1+d7ZzzI2DncMzl07H1DcY1CqdFBKZihKKHR4w=="],
+    "@johpaz/hive-db-darwin-arm64": ["@johpaz/hive-db-darwin-arm64@0.5.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-4fkhTOJCmvNIlJT8RkVS6EO9ojUyfGJgpXK949HOPNKTybK/Is1IQFlB86egN8YKBT0BrcF7dTwO3h0LFYA6QQ=="],
 
-    "@johpaz/hive-db-darwin-x64": ["@johpaz/hive-db-darwin-x64@0.4.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-GTlof8kUrMU2324rzPCjfqstvOkmp3Erw2n7sOzb6DBuaqU/DxIZMKY8oBVCbB0P2yf0AKlr10QcrU+hAKz2fw=="],
+    "@johpaz/hive-db-darwin-x64": ["@johpaz/hive-db-darwin-x64@0.5.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-RpJEM3AlxeYR2A6lBQpIYGmovTizxd14IAIr8D7JGKYnsLWgjShXiAJSpw8Iizhfcf6n+3ZvCE66rI8tCQHyjg=="],
 
-    "@johpaz/hive-db-linux-arm64-gnu": ["@johpaz/hive-db-linux-arm64-gnu@0.4.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-whnT7zUho5VeAuC8/VwgpFSyupddvjmmNUTVZC9PLJ1yiKiYfQP+KEwJyv5IUARQbaM03S/7LkmMcCLjGz4e/Q=="],
+    "@johpaz/hive-db-linux-arm64-gnu": ["@johpaz/hive-db-linux-arm64-gnu@0.5.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-jcroCACfo2w0oUMQs47LdbN+HFQT8jdznWFdD9shHeMHv5ahmF4zIZWwKn28rq2J9d4QdrSLiWKhUiWlZYWWng=="],
 
-    "@johpaz/hive-db-linux-x64-gnu": ["@johpaz/hive-db-linux-x64-gnu@0.4.0", "", { "os": "linux", "cpu": "x64" }, "sha512-Z5jrBpLviKu7FI8Hj2Vaa3l8W+wT99bks6kidxIYFkvV23OEZ3dc3zqCgmBlX1fqnO77BH2cvAL3aSeqpmr+wQ=="],
+    "@johpaz/hive-db-linux-x64-gnu": ["@johpaz/hive-db-linux-x64-gnu@0.5.1", "", { "os": "linux", "cpu": "x64" }, "sha512-zH3aZ5NCRSrDp3dms2Ma+UB4VvlvDg7kDhRF868Yt54pVzGRD8Z88EgEhk6Lb3OwufsQJCRSBNX905crtEc/jA=="],
 
-    "@johpaz/hive-db-linux-x64-musl": ["@johpaz/hive-db-linux-x64-musl@0.4.0", "", { "os": "linux", "cpu": "x64" }, "sha512-iZ+djZx3icH7rbuKFf2I4iV/L9/MNB+dP/TxfFcxt3pv9zG5vWWB8yaLvfyz27Y4628en6bzsqI5TPuWNoXrrg=="],
+    "@johpaz/hive-db-linux-x64-musl": ["@johpaz/hive-db-linux-x64-musl@0.5.1", "", { "os": "linux", "cpu": "x64" }, "sha512-gN7UsjR/FHsbBdBsjj+YEMkcIk0Bu+N8+bKTGflIt0XnZQ+n2os7yJirXIg/f+sI/3vfvCnWgNcYVwmn0Q8fKg=="],
 
-    "@johpaz/hive-db-win32-x64-msvc": ["@johpaz/hive-db-win32-x64-msvc@0.4.0", "", { "os": "win32", "cpu": "x64" }, "sha512-QX2dErVO4nJ0cLcdq886q0S/NZH6TTz5wV2QG+afhPdOallDgvjfXvb+d9266n5lHDewty8yHw5YMUfCblGaFQ=="],
+    "@johpaz/hive-db-win32-x64-msvc": ["@johpaz/hive-db-win32-x64-msvc@0.5.1", "", { "os": "win32", "cpu": "x64" }, "sha512-7CfKretZDrHgRkYd4cMbisZdkK34Ovv+aUwVuNcz7TcY2G1pfbJfmJ34Y12tmzq/UvLwV65VkXbt4WmpcUIzGw=="],
 
     "@keyv/bigmap": ["@keyv/bigmap@1.3.1", "", { "dependencies": { "hashery": "^1.4.0", "hookified": "^1.15.0" }, "peerDependencies": { "keyv": "^5.6.0" } }, "sha512-WbzE9sdmQtKy8vrNPa9BRnwZh5UF4s1KTmSK0KUVLo3eff5BlQNNWDnFOouNpKfPKDnms9xynJjsMYjMaT/aFQ=="],
 

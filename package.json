@@ -99,7 +99,7 @@
     "drift": "bun scripts/check-drift.ts"
   },
   "dependencies": {
-    "@johpaz/hive-db": "^0.4.0",
+    "@johpaz/hive-db": "^0.5.1",
     "@anthropic-ai/sdk": "^0.74.0",
     "@google/genai": "^1.43.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
