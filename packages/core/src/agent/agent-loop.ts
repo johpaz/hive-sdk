@@ -171,7 +171,8 @@ async function appendCausalEvent(
 ): Promise<number | undefined> {
   try {
     return await db.append({
-      agentId: input.agentId,
+      // Shard calificado con el tenant: ver causalAgentKey en causal-events.ts.
+      agentId: causalAgentKey(input.agentId),
       streamId: input.streamId,
       kind: input.kind,
       payload: JSON.stringify(input.payload),

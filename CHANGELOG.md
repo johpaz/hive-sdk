@@ -24,6 +24,19 @@
 
 ### Corregido
 
+- **Con un tenant activo, el log causal se apagaba en lugar de acotarse.**
+  `causalThread`, `toolStats` y `buildAgentContext` recorrían todos los shards
+  de la base, así que con un tenant en scope `causalReadsEnabled()` las apagaba:
+  en un host multi-inquilino el reflector G9 y el contexto causal del
+  compilador no corrían nunca. Ahora las tres lecturas van siempre acotadas a
+  los agentes que corresponden —el agente del turno, o los del lote de trazas— y
+  el apagado desaparece. Además el shard de cada evento pasa a ser
+  `causalAgentKey(agentId)`: con tenant lleva el tenant delante (`t_…:agente`,
+  la misma forma que los ids del índice BM25), así que dos inquilinos con un
+  agente del mismo id ya no comparten shard. Una lista de agentes vacía se salta
+  la lectura en vez de pasarse al motor, que la trataría como "todos los
+  shards". Cubierto por `test/causal-tenant-scope.test.ts`.
+
 - **`browser_scrape` extraía con una tool que no ve lo que el navegador
   renderizó.** La skill existe para sitios dinámicos, y su paso de extracción
   usaba `web_fetch`, que vuelve a pedir la URL al servidor y recibe el HTML sin
@@ -197,6 +210,11 @@
   anteriores**: el archivo viaja en el tarball publicado.
 
 ### Cambiado
+
+- **El `toolStats` del reflector se acota a los agentes del lote**, también sin
+  tenant. Antes sumaba el historial de la tool de todos los agentes de la base;
+  ahora el de los agentes cuyas trazas se están analizando. Es la misma
+  semántica con y sin tenant, y no recorre el log entero.
 
 - **Los tests que manejan un navegador real son opt-in (`BROWSER_TESTS=1`).**
   Su guarda era `isWebViewSupported()`, que sólo comprueba que exista un binario

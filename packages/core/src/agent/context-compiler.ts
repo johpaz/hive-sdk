@@ -588,7 +588,10 @@ export async function compileContext(opts: {
   // applies this turn (a real DB round-trip, not a per-turn cost) and
   // there's a causal stream to build it from. episodicSimilarity is omitted:
   // it requires embeddings hive doesn't generate anywhere yet.
-  if (summaryApplies && opts.causalStreamId && causalReadsEnabled()) {
+  // Acotado al shard de este agente: el stream es de una sola invocación suya,
+  // así que el hilo es el mismo y no se recorre el log de nadie más.
+  const causalAgents = causalScope([opts.agentId])
+  if (summaryApplies && opts.causalStreamId && causalAgents && causalReadsEnabled()) {
     try {
       const causalDb = await getHiveDb()
       const objectiveSource = taskContext || userMessage
@@ -605,6 +608,7 @@ export async function compileContext(opts: {
         currentObjective: currentObjective.slice(0, 2000),
         maxTokens: causalMaxTokens,
         strategy: { causalAnchors: true, compressCompletedPhases: true },
+        agents: causalAgents,
       })) as AgentContextShape
 
       const causalLines = [...(causalCtx.items ?? []), ...(causalCtx.anomalies ?? [])]
