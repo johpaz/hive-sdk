@@ -54,6 +54,26 @@ Estos adaptadores están en la frontera con el runtime. No deben reemplazarse po
 `any`, `@ts-ignore` o `@ts-expect-error`: hacerlo convertiría una incompatibilidad
 real de plataforma en un falso resultado verde.
 
+## hive-db 0.5.1 y log causal por tenant
+
+Hive SDK requiere **`@johpaz/hive-db` 0.5.1 o posterior**. Llega como
+dependencia del SDK, así que una aplicación consumidora no la declara. Lo que
+sigue sólo importa con el log causal encendido (`HIVE_CAUSAL_LOG=true` o
+`causalLog.enabled`):
+
+- Con un tenant activo (`runInTenant`) el reflector y el contexto causal del
+  compilador vuelven a funcionar. Antes se apagaban; ahora leen acotado a los
+  agentes del turno o del lote de trazas.
+- La clave de shard de cada evento es `causalAgentKey(agentId)`: sin tenant, el
+  id del agente tal cual; con tenant, `t_…:agentId`. Los eventos que un host
+  haya escrito con tenant antes de esta versión quedaron con el id crudo y las
+  lecturas acotadas ya no los ven. Sin tenant no cambia nada.
+- El `toolStats` del reflector cuenta el historial de los agentes del lote, no
+  el de toda la base, con y sin tenant.
+- `watchCausalEvents` con tenant sigue exigiendo `agentId`: se le pasa el id
+  crudo y el SDK lo califica. Los eventos que entrega traen en `agentId` la
+  clave del shard; `formatCausalEvent` la muestra sin el tenant.
+
 ## Compatibilidad y CI
 
 Los workflows fijan Bun 1.4.2, instalan con `--frozen-lockfile`, ejecutan el

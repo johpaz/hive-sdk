@@ -444,8 +444,8 @@ unsubscribeCanvas(handler);
 
 ## Storage
 
-HiveDB (`@johpaz/hive-db`), un motor embebido con colecciones de documentos e
-índice BM25. Reemplazó a SQLite + FTS5 en 0.1.5.
+HiveDB (`@johpaz/hive-db` 0.5.1 o posterior), un motor embebido con colecciones
+de documentos e índice BM25. Reemplazó a SQLite + FTS5 en 0.1.5.
 
 ```typescript
 import { ensureHiveDb, col } from "@johpaz/hive-sdk";

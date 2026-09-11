@@ -16,6 +16,7 @@
 import { logger } from "../utils/logger.ts"
 import { col, fromIndexable } from "../storage/hive.ts"
 import { getHiveDb } from "../storage/hivedb.ts"
+import { causalAgentKey } from "../storage/causal-events.ts"
 import type { HiveDB, EventInput } from "@johpaz/hive-db"
 import type { AgentDoc, TurnSource } from "../storage/collections.ts"
 import { callLLM, resolveProviderConfig, getDefaultLLM, type LLMMessage, type ProviderCredentials } from "./llm-client.ts"

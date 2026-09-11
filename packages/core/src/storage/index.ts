@@ -128,4 +128,4 @@ export { reconcileOnBoot } from "./reconcile.ts";
 
 // ─── Log causal (G9) ─────────────────────────────────────────────────────────
 export type { CausalEvent, CausalEventPattern } from "./causal-events.ts";
-export { watchCausalEvents, formatCausalEvent } from "./causal-events.ts";
+export { watchCausalEvents, formatCausalEvent, causalAgentKey, causalScope } from "./causal-events.ts";

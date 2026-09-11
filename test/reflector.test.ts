@@ -1,7 +1,8 @@
 /**
  * Reflector tests: local trace-batch analysis, plus the G9 causalLog path
  * where per-tool insights (failure count, avg latency) come from HiveDB's
- * whole-history toolStats() instead of just the current batch of traces.
+ * toolStats() over the full history of the batch's agents instead of just the
+ * current batch of traces.
  */
 
 process.env.HIVE_DB_PATH = ":memory:";

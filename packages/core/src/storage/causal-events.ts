@@ -3,32 +3,63 @@
  *
  * Read-side, separate from agent-loop.ts's write-side appendCausalEvent()
  * (module-private there, write-only). This is the read/watch counterpart,
- * co-located with the DB singleton accessor.
+ * co-located with the DB singleton accessor. It also owns the shard key both
+ * sides use (causalAgentKey) and the agent scope of every aggregated read
+ * (causalScope).
  */
 
 import { getHiveDb } from "./hivedb.ts"
-import { currentTenant } from "./tenant.ts"
+import { currentTenant, qualifyDocId, unqualifyDocId } from "./tenant.ts"
 import { loadConfig } from "../config/loader.ts"
 import type { Event, EventPattern } from "@johpaz/hive-db"
 
 export type { Event as CausalEvent, EventPattern as CausalEventPattern }
 
 /**
- * ¿Se pueden hacer lecturas AGREGADAS del log causal en este contexto?
+ * Clave de shard de un agente en el log causal.
  *
- * `causalThread`, `buildAgentContext` y `toolStats` recorren todos los shards
- * de la base y mezclan sus resultados (`log.rs` — `read_stream_all_agents` y
- * `project::<P>()` para proyecciones con scope Agent). Sobre una base
- * compartida eso devolvería hilos y estadísticas de otros inquilinos. Mientras
- * el motor no exponga las variantes acotadas por agente, con un tenant activo
- * estas lecturas se apagan: perder una señal de reflexión es aceptable, cruzar
- * datos entre agencias no.
+ * El log no tiene colecciones que prefijar: cada evento va al shard de su
+ * `agentId`, y ahí está todo el aislamiento. Con un tenant activo la clave
+ * lleva el tenant delante (`t_…:agentId`, la misma forma que usa el índice
+ * BM25 vía `qualifyDocId`), así que dos inquilinos con un agente del mismo id
+ * no comparten shard. Sin tenant es la identidad y un log de un solo dueño no
+ * cambia.
  *
- * La ESCRITURA (`append`) no entra aquí: va al shard del propio agente, y los
- * agentes de Hive Cloud ya llevan el enjambre en el id.
+ * Escritura y lecturas tienen que pasar por aquí: un evento escrito con una
+ * clave y leído con otra simplemente no aparece.
+ */
+export function causalAgentKey(agentId: string): string {
+  return qualifyDocId(agentId)
+}
+
+/**
+ * Lista `agents` para `causalThread`, `toolStats` y `buildAgentContext`.
+ *
+ * Devuelve `null` si no queda ningún agente, y quien llama se salta la
+ * lectura: hive-db trata una lista vacía igual que la ausencia de filtro y
+ * recorre TODOS los shards, que sobre una base compartida es leer los eventos
+ * de otros inquilinos.
+ */
+export function causalScope(agentIds: Iterable<string | null | undefined>): string[] | null {
+  const keys = new Set<string>()
+  for (const id of agentIds) {
+    if (id) keys.add(causalAgentKey(id))
+  }
+  return keys.size > 0 ? [...keys] : null
+}
+
+/**
+ * ¿Se lee el log causal (reflector, contexto causal del compilador)?
+ *
+ * Con hive-db 0.4, `causalThread`, `buildAgentContext` y `toolStats` recorrían
+ * todos los shards y mezclaban sus resultados, así que con un tenant activo
+ * había que apagarlas para no devolver hilos y estadísticas de otros
+ * inquilinos. hive-db 0.5.1 —la mínima que pide el SDK— acepta `agents` en las
+ * tres, y el SDK las llama siempre acotadas con {@link causalScope}: basta con
+ * que el log esté encendido.
  */
 export function causalReadsEnabled(): boolean {
-  return !!loadConfig().causalLog?.enabled && !currentTenant()
+  return !!loadConfig().causalLog?.enabled
 }
 
 /**
@@ -52,10 +83,10 @@ export function causalReadsEnabled(): boolean {
 export async function watchCausalEvents(
   pattern: EventPattern
 ): Promise<AsyncIterable<Event> & { close(): void }> {
-  // El log de eventos no tiene colecciones que prefijar: el aislamiento entre
-  // inquilinos lo da el shard por `agentId`. Un patrón sin `agentId` sobre una
-  // base compartida entregaría los eventos de todos los enjambres, así que se
-  // exige explícitamente en vez de filtrar a medias.
+  // Un patrón sin `agentId` sobre una base compartida entregaría los eventos de
+  // todos los enjambres, así que con un tenant activo se exige explícitamente en
+  // vez de filtrar a medias. Se recibe el id crudo del agente y su shard se
+  // busca por la clave calificada.
   if (currentTenant() && !pattern.agentId) {
     throw new Error(
       "watchCausalEvents: con un tenant activo el patrón debe fijar agentId; " +
@@ -63,7 +94,7 @@ export async function watchCausalEvents(
     )
   }
   const db = await getHiveDb()
-  return db.events(pattern)
+  return db.events(pattern.agentId ? { ...pattern, agentId: causalAgentKey(pattern.agentId) } : pattern)
 }
 
 /** One-line human-readable summary of a causal event, keyed by its kindTag. */
@@ -76,7 +107,7 @@ export function formatCausalEvent(event: Event): string {
   }
 
   const streamShort = event.streamId.slice(0, 8)
-  const header = `[${event.seq}] ${kindIcon(event.kindTag)} ${event.kindTag.padEnd(16)} agent=${event.agentId}  stream=${streamShort}…`
+  const header = `[${event.seq}] ${kindIcon(event.kindTag)} ${event.kindTag.padEnd(16)} agent=${unqualifyDocId(event.agentId)}  stream=${streamShort}…`
 
   switch (event.kindTag) {
     case "IntentLogged":

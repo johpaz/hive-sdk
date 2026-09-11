@@ -17,6 +17,10 @@
   procedencia, hash y una prueba funcional del OOXML generado.
 - Añadidas las guías `docs/UPGRADING.md` y
   `docs/SECURITY-GUARDRAILS.md` para operación y auditoría.
+- **Requiere `@johpaz/hive-db` ^0.5.1** (antes ^0.4.0). Trae las lecturas del
+  log causal acotadas por agente (`agents` en `causalThread`, `toolStats` y
+  `buildAgentContext`), de las que depende el aislamiento entre inquilinos del
+  log causal descrito en *Corregido*.
 
 ### Corregido
 
