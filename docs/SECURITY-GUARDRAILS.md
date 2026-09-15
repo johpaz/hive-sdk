@@ -14,12 +14,32 @@ de proceso.
 - SheetJS CE se instala desde la distribución oficial 0.20.3; el paquete npm
   abandonado en 0.18.5 no forma parte del grafo.
 - Baileys está fijado exactamente en `7.0.0-rc14` para evitar retroceder a una
-  release candidate vulnerable.
+  release candidate vulnerable. Además se **carga bajo demanda**: entra en el
+  proceso sólo si alguien conecta el canal `whatsapp` por código QR. Un
+  consumidor que no lo use —hive-cloud, por ejemplo, que usa el canal oficial—
+  no carga su grafo ni su parche de `process.stderr.write`.
 - PptxGenJS 4.0.1 se conserva como artefacto ESM vendorizado, con licencia,
   procedencia y SHA-256. No se instala su dependencia muerta `image-size`.
 
 Toda actualización del artefacto PPTX debe verificar su origen y hash, ejecutar
 la prueba OOXML y volver a ejecutar el audit.
+
+## Webhooks de WhatsApp (Cloud API)
+
+El canal `whatsapp_cloud` recibe por una URL pública, así que todo lo que llega
+es no confiable hasta comprobar dos cosas:
+
+- **La firma.** `verifySignature` recalcula el HMAC-SHA256 del cuerpo **crudo**
+  con el secreto de la app de Meta y lo compara con `X-Hub-Signature-256`
+  usando `timingSafeEqual`. Sin cabecera, sin secreto o con una firma que no
+  coincide, el webhook responde 401 y no se procesa nada. El cuerpo se lee como
+  texto antes de parsearlo: firmar el JSON reserializado daría distinto.
+- **El token de verificación.** El `hub.verify_token` del alta se compara
+  también con `timingSafeEqual`; si no coincide, 403.
+
+El canal además sólo atiende eventos de su propio `phone_number_id` —una misma
+cuenta de WhatsApp Business puede tener varios números apuntando a la misma
+URL— y descarta por id los reintentos de Meta.
 
 ## Archivos PDF
 

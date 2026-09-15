@@ -593,6 +593,8 @@ class VoiceService {
       case "discord":
         return this.normalizeDiscordAudio(audioData);
       case "whatsapp":
+      case "whatsapp_cloud":
+        // Las notas de voz son ogg/opus en los dos casos.
         return this.normalizeWhatsAppAudio(audioData);
       case "slack":
         return this.normalizeSlackAudio(audioData);

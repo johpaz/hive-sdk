@@ -1,11 +1,7 @@
-import makeWASocket, {
-  DisconnectReason,
-  useMultiFileAuthState,
-  fetchLatestBaileysVersion,
-  downloadMediaMessage,
-  type WASocket,
-  type ConnectionState,
-  type WAMessage,
+import type {
+  WASocket,
+  ConnectionState,
+  WAMessage,
 } from "@whiskeysockets/baileys";
 import type { ChannelConfig, IncomingMessage, OutboundMessage } from "./base.ts";
 import { BaseChannel } from "./base.ts";
@@ -15,18 +11,44 @@ import { homedir } from "node:os";
 import { logger } from "../utils/logger.ts";
 import { updateDoc } from "../storage/hive.ts";
 import type { ChannelDoc } from "../storage/collections.ts";
-// @ts-ignore — no type definitions for qrcode-terminal
-import qrcodeTerminal from "qrcode-terminal";
 
-// Baileys uses the `ws` npm package which triggers "[bun] Warning: ws.WebSocket 'upgrade'
-// event is not implemented in bun" etc. Bun writes these directly to stderr from native
-// code, bypassing process.emitWarning. Patch process.stderr.write to filter them out.
-const _origStderrWrite = process.stderr.write.bind(process.stderr);
-(process.stderr as any).write = function (chunk: string | Buffer, ...args: unknown[]) {
-  const str = typeof chunk === "string" ? chunk : Buffer.isBuffer(chunk) ? chunk.toString() : "";
-  if (str.includes("[bun] Warning:") && str.includes("not implemented in bun")) return true;
-  return _origStderrWrite(chunk, ...(args as any[]));
-};
+/**
+ * Baileys se carga recién cuando alguien conecta este canal de verdad.
+ *
+ * Antes se importaba arriba de todo. Como el índice del SDK re-exporta este
+ * archivo, cualquiera que importara `@johpaz/hive-sdk` —hive-cloud, por
+ * ejemplo, que no usa ningún canal del SDK— se traía Baileys entero y, de
+ * paso, el parche de `process.stderr.write` de acá abajo, en cada proceso.
+ * Diferido, quien no usa WhatsApp por código QR no paga nada.
+ */
+let baileys: typeof import("@whiskeysockets/baileys") | null = null;
+
+async function loadBaileys(): Promise<NonNullable<typeof baileys>> {
+  if (!baileys) {
+    filterBunWsWarnings();
+    baileys = await import("@whiskeysockets/baileys");
+  }
+  return baileys;
+}
+
+let stderrFiltered = false;
+
+/**
+ * Baileys usa el paquete `ws`, que dispara "[bun] Warning: ws.WebSocket
+ * 'upgrade' event is not implemented in bun" y parecidos. Bun los escribe
+ * directo a stderr desde código nativo, sin pasar por `process.emitWarning`,
+ * así que la única forma de filtrarlos es envolver `process.stderr.write`.
+ */
+function filterBunWsWarnings(): void {
+  if (stderrFiltered) return;
+  stderrFiltered = true;
+  const original = process.stderr.write.bind(process.stderr);
+  (process.stderr as any).write = function (chunk: string | Buffer, ...args: unknown[]) {
+    const str = typeof chunk === "string" ? chunk : Buffer.isBuffer(chunk) ? chunk.toString() : "";
+    if (str.includes("[bun] Warning:") && str.includes("not implemented in bun")) return true;
+    return original(chunk, ...(args as any[]));
+  };
+}
 
 export interface WhatsAppConfig extends ChannelConfig {
   accountId: string;
@@ -114,6 +136,9 @@ export class WhatsAppChannel extends BaseChannel {
     this.log.info("Connecting to WhatsApp...");
 
     try {
+      const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } =
+        await loadBaileys();
+
       const { state, saveCreds } = await useMultiFileAuthState(this.authPath);
       const { version } = await fetchLatestBaileysVersion();
       this.connectionState.waVersion = version.join(".");
@@ -170,13 +195,13 @@ export class WhatsAppChannel extends BaseChannel {
     if (qr) {
       this.connectionState.status = "qr";
       this.connectionState.qrCode = qr;
-      this.printQR(qr);
+      void this.printQR(qr);
       this.log.info("Scan the QR code above with WhatsApp");
     }
 
     if (connection === "close") {
       const statusCode = (lastDisconnect?.error as { output?: { statusCode: number } })?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      const shouldReconnect = statusCode !== baileys!.DisconnectReason.loggedOut;
 
       this.connectionState.status = "disconnected";
       this.log.warn(`WhatsApp disconnected: ${statusCode}`);
@@ -186,8 +211,8 @@ export class WhatsAppChannel extends BaseChannel {
       } catch { /* ignore DB errors */ }
 
       const needsSessionClear =
-        statusCode === DisconnectReason.loggedOut ||
-        statusCode === DisconnectReason.badSession;
+        statusCode === baileys!.DisconnectReason.loggedOut ||
+        statusCode === baileys!.DisconnectReason.badSession;
       // NOTE: 515 (restartRequired) is sent by WhatsApp AFTER a successful pairing
       // to signal Baileys to reconnect with the new credentials — do NOT clear session.
 
@@ -233,10 +258,15 @@ export class WhatsAppChannel extends BaseChannel {
     return { ...this.connectionState };
   }
 
-  private printQR(qr: string): void {
+  private async printQR(qr: string): Promise<void> {
     this.log.info("\n" + "=".repeat(50));
     this.log.info("  WHATSAPP QR CODE - Scan with your phone");
     this.log.info("=".repeat(50) + "\n");
+
+    // @ts-ignore — no type definitions for qrcode-terminal
+    const qrcodeTerminal = (await import("qrcode-terminal")).default as {
+      generate: (text: string, opts: { small: boolean }, cb: (qr: string) => void) => void;
+    };
 
     qrcodeTerminal.generate(qr, { small: false }, (qrString: string) => {
       this.log.info(qrString);
@@ -307,7 +337,7 @@ export class WhatsAppChannel extends BaseChannel {
 
   if (hasAudio && this.socket) {
     try {
-      audioBuffer = await downloadMediaMessage(
+      audioBuffer = await baileys!.downloadMediaMessage(
         typedMsg as unknown as WAMessage,
         "buffer",
         {},
@@ -320,7 +350,7 @@ export class WhatsAppChannel extends BaseChannel {
 
   if (hasImage && this.socket) {
     try {
-      imageBuffer = await downloadMediaMessage(
+      imageBuffer = await baileys!.downloadMediaMessage(
         typedMsg as unknown as WAMessage,
         "buffer",
         {},
@@ -336,7 +366,7 @@ export class WhatsAppChannel extends BaseChannel {
 
   if (hasDocument && this.socket) {
     try {
-      documentBuffer = await downloadMediaMessage(
+      documentBuffer = await baileys!.downloadMediaMessage(
         typedMsg as unknown as WAMessage,
         "buffer",
         {},

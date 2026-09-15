@@ -353,6 +353,7 @@ await manager.initialize();
 import {
   TelegramChannel,
   DiscordChannel,
+  WhatsAppCloudChannel,
   WhatsAppChannel,
   SlackChannel,
   WebChatChannel,
@@ -364,8 +365,20 @@ const telegram = new TelegramChannel({ botToken: process.env.TELEGRAM_BOT_TOKEN!
 // Discord
 const discord = new DiscordChannel({ botToken: process.env.DISCORD_BOT_TOKEN! });
 
-// WhatsApp
-const whatsapp = new WhatsAppChannel();
+// WhatsApp por la API oficial de Meta — el camino para un negocio
+const whatsapp = new WhatsAppCloudChannel({
+  enabled: true,
+  accountId: "ventas",
+  phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID!,
+  accessToken: process.env.WHATSAPP_ACCESS_TOKEN!,
+  appSecret: process.env.WHATSAPP_APP_SECRET!,
+  verifyToken: process.env.WHATSAPP_VERIFY_TOKEN!,
+  dmPolicy: "open",
+  allowFrom: [],
+});
+
+// WhatsApp por código QR (Baileys). No es oficial: uso personal.
+const whatsappQr = new WhatsAppChannel();
 
 // Slack
 const slack = new SlackChannel({ botToken: process.env.SLACK_BOT_TOKEN! });
@@ -373,6 +386,45 @@ const slack = new SlackChannel({ botToken: process.env.SLACK_BOT_TOKEN! });
 // Webchat
 const webchat = new WebChatChannel();
 ```
+
+### WhatsApp: cuál de los dos
+
+| | `whatsapp_cloud` | `whatsapp` |
+|---|---|---|
+| Qué es | La API oficial de Meta (Cloud API) | Baileys, WhatsApp Web por código QR |
+| Para quién | Un negocio: número de WhatsApp Business propio, plantillas de marketing y atribución de los anuncios que abren la conversación | Uso personal |
+| Riesgo | Ninguno: es el camino soportado | Va contra los términos de WhatsApp; el número puede terminar bloqueado |
+| Cómo recibe | Webhook: hace falta una URL HTTPS pública | Conexión propia, sin URL pública |
+
+El canal oficial no abre ninguna conexión: Meta empuja los mensajes a una URL.
+El gateway la sirve en `/webhooks/whatsapp-cloud/<cuenta>` si se le pasa el
+manager, y esa es la que se registra en el panel de Meta junto con el
+`verifyToken`.
+
+```typescript
+const channelManager = new ChannelManager(await loadConfig());
+await channelManager.initialize();
+
+// Sin esto, el gateway no tiene a quién entregarle lo que manda Meta.
+await startGateway({ channelManager });
+```
+
+Tres cosas que conviene saber antes de ponerlo en producción:
+
+- **La ventana de 24 h.** Pasado ese tiempo desde el último mensaje del cliente,
+  Meta sólo acepta plantillas aprobadas (error 131047). Con
+  `windowFallbackTemplate` el canal manda esa plantilla; sin ella, lanza un
+  error que lo explica en vez de fallar en silencio.
+- **Cada mensaje se cobra.** Desde el 1 de octubre de 2026 los mensajes de
+  servicio dentro de la ventana también se pagan, así que la narración de
+  progreso del agente no se envía salvo que se encienda `sendProgress`. En su
+  lugar se renueva el "escribiendo…", que es gratis.
+- **4096 caracteres por mensaje.** El cliente parte las respuestas largas solo,
+  cortando entre párrafos.
+
+La versión del Graph sale de `META_GRAPH_API_VERSION` (por defecto la estable
+más reciente). Conviene fijarla a conciencia: cada versión caduca a los ~2 años
+y Meta redirige las llamadas a la más vieja que siga viva, sin avisar.
 
 ---
 
@@ -482,6 +534,33 @@ const skills = await selectSkills("investigar en la web");
 
 Una tool declarada con `defineTool` y pasada a `createAgent` queda indexada
 automáticamente, así que el modelo puede descubrirla igual que a las nativas.
+
+### Catálogo compartido entre inquilinos
+
+En un host multi-inquilino (varios enjambres en una sola HiveDB, ver
+`runInTenant`) el catálogo —`tools`, `skills` y `ethics`— es contenido de la
+INSTALACIÓN, no de cada inquilino: su contenido se instala una sola vez en la
+colección sin prefijo, y cada inquilino guarda únicamente lo que activó.
+
+```typescript
+import { col, runInTenant, setCatalogActivation } from "@johpaz/hive-sdk";
+
+// Sin inquilino: esto instala el catálogo, una vez para todos.
+await ensureHiveDb();
+
+await runInTenant(tenantKey, async () => {
+  const tools = await col<ToolDoc>("tools");
+  await tools.scan({});                              // ve el catálogo entero
+
+  // Encender una tool para ESTE inquilino: guarda su elección, no una copia.
+  await setCatalogActivation("tools", "web_search", { active: true });
+});
+```
+
+Lo que el inquilino crea —la tool de un endpoint de API, una skill propia— se
+escribe en su partición y no lo ve nadie más. Editar el contenido de una fila del
+catálogo deja una copia privada; borrarla la oculta sólo para él. Sin inquilino
+en scope nada de esto se activa y `col()` se comporta como siempre.
 
 ---
 

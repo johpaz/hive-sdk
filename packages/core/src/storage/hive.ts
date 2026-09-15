@@ -9,6 +9,7 @@
 
 import { getHiveDb } from "./hivedb.ts";
 import { qualify } from "./tenant.ts";
+import { catalogCol, esCatalogoCompartido, type DocStore } from "./catalog.ts";
 
 const MAX_RETRIES = 5;
 
@@ -46,7 +47,11 @@ export function fromIndexable(value: string | null | undefined): string | null {
  * El handle se construye en cada llamada a propósito: cachearlo en una variable
  * de módulo lo dejaría atado al tenant que lo creó primero.
  */
-export async function col<T>(name: string) {
+export async function col<T>(name: string): Promise<DocStore<T>> {
+  // El catálogo (`tools`, `skills`, `ethics`) es contenido de la instalación, no
+  // de un inquilino: con tenant activo se sirve compartido, con la elección de
+  // este inquilino aplicada encima. Ver storage/catalog.ts.
+  if (esCatalogoCompartido(name)) return catalogCol<T>(name);
   const db = await getHiveDb();
   return db.collection<T>(qualify(name));
 }

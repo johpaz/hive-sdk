@@ -78,7 +78,7 @@ export async function resolveBestChannel(userId: string, explicitChannel?: strin
   }
 
   if (!bestChannel) {
-    const preferred = ["telegram", "discord", "slack", "whatsapp", "webchat"];
+    const preferred = ["telegram", "discord", "slack", "whatsapp_cloud", "whatsapp", "webchat"];
     for (const p of preferred) {
       if (identities.includes(p)) {
         bestChannel = p;
@@ -113,7 +113,7 @@ export const cronCreateTool: Tool = {
       agent_id: { type: "string", description: "Target agent ID (optional, defaults to Coordinator)" },
       tool_name: { type: "string", description: "Specific tool to execute (optional)" },
       max_runs: { type: "number", description: "Maximum executions (optional, null = unlimited)" },
-      channel: { type: "string", description: "Notification channel (system, telegram, discord, whatsapp, cli)" },
+      channel: { type: "string", description: "Notification channel (system, telegram, discord, whatsapp_cloud, whatsapp, cli)" },
       start_at: { type: "string", description: "ISO 8601 datetime: start of execution window. Optional." },
       stop_at: { type: "string", description: "ISO 8601 datetime: end of execution window. Optional." },
       dom_and_dow: { type: "boolean", description: "If true, both day-of-month AND day-of-week must match. Default: false (OR logic)" },

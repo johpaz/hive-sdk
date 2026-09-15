@@ -21,9 +21,26 @@
 import type { IndexDoc } from "@johpaz/hive-db";
 import { getHiveDb } from "../storage/hivedb.ts";
 import { currentTenant, qualifyDocId, unqualifyDocId, scopedFilterValue } from "../storage/tenant.ts";
+import { listCatalogActivations } from "../storage/catalog.ts";
 import { logger } from "../utils/logger.ts";
 
 const log = logger.child("capability-search");
+
+/**
+ * Ámbito de los documentos que no son de ningún inquilino: el catálogo.
+ *
+ * Es el mismo `"_"` que `scopedFilterValue()` usa cuando no hay tenant, y por
+ * eso sirve de las dos maneras: como valor del filtro `tenant` para poder
+ * BUSCAR el catálogo desde dentro de un inquilino, y como parte de
+ * `tenant__type` para que un reindexado del catálogo BORRE sólo lo suyo.
+ *
+ * Antes el catálogo se indexaba sin filtro `tenant` alguno, y eso rompía las dos
+ * cosas: desde un enjambre la búsqueda filtraba por su tenant y no encontraba
+ * NADA del catálogo —ni una tool, ni una skill—, y un reindexado desde fuera
+ * borraba por `type` a secas, llevándose por delante los documentos de todos los
+ * inquilinos (las tools de sus endpoints, sus tools de MCP).
+ */
+const CATALOGO = "_";
 
 export type CapabilityType = "tool" | "skill" | "playbook" | "mcp" | "agent";
 
@@ -91,17 +108,22 @@ export async function searchCapabilities(
   // type; the single-type and all-types cases are one engine call.
   //
   // El índice semántico es UNO solo para todos los inquilinos (no hay
-  // "colección" que prefijar), así que el tenant entra como un filtro más que
-  // el motor AND-ea con el resto. Sin tenant no se añade nada: así un índice ya
-  // construido por la app de escritorio sigue respondiendo igual.
+  // "colección" que prefijar), así que el ámbito entra como un filtro más que el
+  // motor AND-ea con el resto.
+  //
+  // Con inquilino activo se consulta DOS veces: lo suyo —las tools de sus
+  // endpoints, sus tools de MCP— y el catálogo compartido, que se instala una
+  // sola vez y es de todos (ver storage/catalog.ts). Sin inquilino se consulta
+  // sin filtro de ámbito: una instalación local tiene una sola partición y así
+  // un índice ya construido sigue respondiendo igual.
   const tenant = currentTenant();
-  const tenantFilter = tenant ? [{ field: "tenant", value: tenant }] : [];
-  const queries = types
-    ? types.map((t) => ({
-        type: t,
-        filters: [...tenantFilter, { field: "type", value: t }],
-      }))
-    : [{ type: undefined, filters: tenantFilter.length ? tenantFilter : undefined }];
+  const ambitos = tenant ? [tenant, CATALOGO] : [null];
+  const queries = ambitos.flatMap((ambito) => {
+    const filtroAmbito = ambito ? [{ field: "tenant", value: ambito }] : [];
+    return types
+      ? types.map((t) => ({ filters: [...filtroAmbito, { field: "type", value: t }] }))
+      : [{ filters: filtroAmbito.length ? filtroAmbito : undefined }];
+  });
 
   const merged = new Map<string, CapabilityHit>();
   for (const q of queries) {
@@ -129,7 +151,10 @@ export async function searchCapabilities(
     }
   }
 
+  const apagados = tenant && merged.size > 0 ? await apagadosParaElInquilino() : null;
+
   const results = Array.from(merged.values())
+    .filter((hit) => !apagados?.has(hit.id))
     .sort((a, b) => b.score - a.score)
     .slice(0, k);
 
@@ -138,6 +163,27 @@ export async function searchCapabilities(
     `[capability-search] "${trimmed.substring(0, 60)}" → ${results.length} hits in ${timing.toFixed(1)}ms`
   );
   return results;
+}
+
+/**
+ * Lo que este inquilino apagó del catálogo compartido.
+ *
+ * El índice del catálogo es uno solo, así que no puede llevar la elección de
+ * nadie: se filtra al leer. Sólo se descarta lo que el inquilino decidió
+ * explícitamente —apagar u ocultar—; lo que nunca tocó hereda lo que diga el
+ * catálogo, igual que en la colección (ver storage/catalog.ts).
+ *
+ * Ofrecerle al modelo una capacidad que su workspace apagó es hacerle perder un
+ * turno, además de contarle que existe algo que no puede usar.
+ */
+async function apagadosParaElInquilino(): Promise<Set<string>> {
+  const apagados = new Set<string>();
+  for (const [tipo, coleccion] of [["tool", "tools"], ["skill", "skills"]] as const) {
+    for (const eleccion of await listCatalogActivations(coleccion)) {
+      if (!eleccion.active || eleccion.hidden) apagados.add(`${tipo}:${eleccion.itemId}`);
+    }
+  }
+  return apagados;
 }
 
 /**
@@ -169,12 +215,12 @@ export async function replaceCapabilityDocs(
   // `deleteByFilter` acepta UN SOLO filtro, así que en una base compartida
   // borrar por `type` se llevaría por delante los documentos de todos los
   // inquilinos. El campo sintético `tenant__type` (ver scopedFilterValue)
-  // mantiene el borrado en un filtro y acotado a este tenant.
-  await db.deleteByFilter(
-    currentTenant()
-      ? { field: "tenant__type", value: scopedFilterValue(type) }
-      : { field: "type", value: type }
-  );
+  // mantiene el borrado en un filtro y acotado a un ámbito.
+  //
+  // Sin inquilino el ámbito es el catálogo (`_`), no "todo": reindexar el
+  // catálogo al arrancar borraba las tools de los endpoints y las de MCP de cada
+  // inquilino, que nadie volvía a escribir hasta que ese enjambre se reconectara.
+  await db.deleteByFilter({ field: "tenant__type", value: scopedFilterValue(type) });
   if (docs.length === 0) return;
   await db.upsertBatch(docs.map(toIndexDoc));
 }
@@ -198,7 +244,6 @@ export async function deleteCapabilitiesByServer(serverId: string): Promise<void
 
 function toIndexDoc(doc: CapabilityDoc): IndexDoc {
   const extra = doc.extraFilters ?? [];
-  const tenant = currentTenant();
   return {
     id: qualifyDocId(`${doc.type}:${doc.rawId}`),
     name: doc.name,
@@ -207,20 +252,16 @@ function toIndexDoc(doc: CapabilityDoc): IndexDoc {
     filters: [
       { field: "type", value: doc.type },
       ...extra,
-      // Con tenant activo, cada filtro lleva además un gemelo `tenant__<campo>`.
-      // Es lo que permite que los borrados masivos —que sólo aceptan un
-      // filtro— sigan acotados a este inquilino. Sin tenant no se emite nada,
-      // así que un índice ya construido conserva exactamente su forma.
-      ...(tenant
-        ? [
-            { field: "tenant", value: tenant },
-            { field: "tenant__type", value: scopedFilterValue(doc.type) },
-            ...extra.map((f) => ({
-              field: `tenant__${f.field}`,
-              value: scopedFilterValue(f.value),
-            })),
-          ]
-        : []),
+      // Todo documento declara su ámbito —el inquilino que lo escribió, o `_` si
+      // es del catálogo—, y cada filtro lleva además su gemelo
+      // `tenant__<campo>`. Con eso la búsqueda puede pedir un ámbito concreto y
+      // los borrados masivos —que aceptan un solo filtro— quedan acotados a él.
+      { field: "tenant", value: currentTenant() ?? CATALOGO },
+      { field: "tenant__type", value: scopedFilterValue(doc.type) },
+      ...extra.map((f) => ({
+        field: `tenant__${f.field}`,
+        value: scopedFilterValue(f.value),
+      })),
     ],
   };
 }

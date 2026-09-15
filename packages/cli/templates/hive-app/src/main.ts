@@ -31,6 +31,9 @@ async function main() {
     host: config.gateway?.host,
     port: config.gateway?.port,
     agentId: coordinatorAgent.id,
+    // Los canales que reciben por webhook —WhatsApp por la API oficial de
+    // Meta— entran por el gateway, así que necesita el manager.
+    channelManager,
   });
 
   log.info(`{{APP_NAME}} is running at http://${gateway.hostname}:${gateway.port}`);
