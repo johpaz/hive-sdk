@@ -184,10 +184,16 @@ async function analyzeCausalThreads(traces: TraceDoc[], causalDb: HiveDB | null)
 
   for (const streamId of streamIds) {
     try {
-      const thread = (await causalDb.causalThread(streamId)) as CausalThreadShape
+      // El stream es de una sola invocación, así que sus trazas nombran a los
+      // agentes que escribieron en él. Sin ninguno no hay con qué acotar, y una
+      // lectura sin acotar recorre los shards de todos los inquilinos.
+      const subset = traces.filter((t) => t.causal_stream_id === streamId)
+      const agents = causalScope(subset.map((t) => t.agent_id))
+      if (!agents) continue
+
+      const thread = (await causalDb.causalThread(streamId, agents)) as CausalThreadShape
       if (!thread.decisions?.length && !thread.toolCalls?.length) continue
 
-      const subset = traces.filter((t) => t.causal_stream_id === streamId)
       const originalIntent = subset[0]?.input_summary ?? ""
       const success = subset.every((t) => t.success)
 
@@ -205,13 +211,16 @@ async function analyzeCausalThreads(traces: TraceDoc[], causalDb: HiveDB | null)
       // underlying root cause mint a brand new playbook rule instead of
       // reinforcing one (confirmed via a local before/after canary run).
       if (evaluation.rootCause) {
+        // El log guarda la clave del shard (t_…:agente con tenant); a la regla de
+        // playbook y a affected_agents les llega el id que el host conoce.
+        const rootAgent = unqualifyDocId(evaluation.rootCause.agent)
         const decision = thread.decisions?.find((d) => d.seq === evaluation.rootCause!.seq)
         insights.push({
           type: "root_cause",
           description: decision
-            ? `Root cause: decision "${decision.description}" (agent ${evaluation.rootCause.agent}) preceded a tool failure.`
-            : `Root cause: a decision by agent ${evaluation.rootCause.agent} preceded a tool failure.`,
-          affectedAgents: [evaluation.rootCause.agent],
+            ? `Root cause: decision "${decision.description}" (agent ${rootAgent}) preceded a tool failure.`
+            : `Root cause: a decision by agent ${rootAgent} preceded a tool failure.`,
+          affectedAgents: [rootAgent],
           confidence: 0.6,
         })
       }
@@ -249,14 +258,17 @@ async function analyzeCausalThreads(traces: TraceDoc[], causalDb: HiveDB | null)
 async function analyzeTracesLocally(traces: TraceDoc[], causalDb: HiveDB | null): Promise<Insight[]> {
   const insights: Insight[] = []
 
-  // G9: whole-history stats per tool touched by this batch (undefined when
-  // disabled, or when the tool has no events in the log yet).
+  // G9: historial completo, por tool, de los agentes de este lote (undefined si
+  // el log está apagado o la tool todavía no tiene eventos). Acotado a esos
+  // agentes: con tenant, sin esto se sumarían llamadas de otros inquilinos; sin
+  // tenant, es el historial de estos agentes y no el de toda la base.
   const statsByTool = new Map<string, ToolStats>()
-  if (causalDb) {
+  const agents = causalDb ? causalScope(traces.map((t) => t.agent_id)) : null
+  if (causalDb && agents) {
     const distinctTools = new Set(traces.map((t) => t.tool_used).filter((t): t is string => !!t))
     for (const tool of distinctTools) {
       try {
-        const stats = await causalDb.toolStats(tool)
+        const stats = await causalDb.toolStats(tool, agents)
         if (stats) statsByTool.set(tool, stats)
       } catch (err) {
         log.warn(`[reflector] toolStats(${tool}) failed: ${(err as Error).message}`)

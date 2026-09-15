@@ -16,6 +16,13 @@ export default {
     webchat: { enabled: true },
     telegram: { enabled: false },
     discord: { enabled: false },
+    // WhatsApp por la API oficial de Meta. Es el camino para un negocio:
+    // número propio de WhatsApp Business, plantillas y atribución de los
+    // anuncios que abren la conversación. Recibe por webhook, así que hace
+    // falta exponer `/webhooks/whatsapp-cloud/<cuenta>` con HTTPS público.
+    whatsapp_cloud: { enabled: false },
+    // WhatsApp por código QR (Baileys). No es oficial: sirve para uso
+    // personal, no para un negocio, y el número puede terminar bloqueado.
     whatsapp: { enabled: false },
     slack: { enabled: false },
   },

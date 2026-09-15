@@ -5,6 +5,7 @@ import { createTelegramChannel, type TelegramConfig } from "./telegram.ts";
 import { createDiscordChannel, type DiscordConfig } from "./discord.ts";
 import { createWebChatChannel, type WebChatConfig } from "./webchat.ts";
 import { createWhatsAppChannel, WhatsAppChannel, type WhatsAppConfig } from "./whatsapp.ts";
+import { createWhatsAppCloudChannel, type WhatsAppCloudConfig } from "./whatsapp-cloud/index.ts";
 import { createSlackChannel, type SlackConfig } from "./slack.ts";
 import { col } from "../storage/hive.ts";
 import type { ChannelDoc, AgentDoc, UserIdentityDoc } from "../storage/collections.ts";
@@ -216,6 +217,25 @@ export class ChannelManager {
           break;
         }
 
+        case "whatsapp_cloud":
+          // El de empresa: número de WhatsApp Business propio por la API
+          // oficial. No abre ninguna conexión — espera el webhook de Meta.
+          channel = createWhatsAppCloudChannel({
+            enabled: true,
+            accountId,
+            phoneNumberId: config.phoneNumberId as string,
+            accessToken: config.accessToken as string,
+            appSecret: config.appSecret as string,
+            verifyToken: config.verifyToken as string,
+            graphVersion: config.graphVersion as string | undefined,
+            dmPolicy: (config.dmPolicy as "open" | "pairing" | "allowlist") ?? "allowlist",
+            allowFrom: (config.allowFrom as string[]) ?? [],
+            sendProgress: (config.sendProgress as boolean) ?? false,
+            windowFallbackTemplate:
+              config.windowFallbackTemplate as WhatsAppCloudConfig["windowFallbackTemplate"],
+          } as WhatsAppCloudConfig);
+          break;
+
         case "slack":
           channel = createSlackChannel({
             enabled: true,
@@ -372,6 +392,26 @@ export class ChannelManager {
     if (channel && !channel.isRunning()) {
       await channel.start();
     }
+  }
+
+  /**
+   * Entrega al canal correspondiente lo que llega por webhook — hoy, WhatsApp
+   * por la API oficial de Meta.
+   *
+   * Vive acá y no en el gateway porque quién tiene levantada cada cuenta lo
+   * sabe el manager; el gateway sólo ve una URL.
+   */
+  async handleWebhook(type: string, accountId: string, req: Request): Promise<Response> {
+    const channel = this.channels.get(`${type}:${accountId}`) as
+      | { handleWebhook?: (req: Request) => Promise<Response> }
+      | undefined;
+
+    if (typeof channel?.handleWebhook !== "function") {
+      this.log.warn(`webhook para ${type}:${accountId}, que no está levantado`);
+      return new Response("Unknown channel account", { status: 404 });
+    }
+
+    return channel.handleWebhook(req);
   }
 
   getChannelStatus(type: string, accountId: string): { status: string; qrCode?: string } {

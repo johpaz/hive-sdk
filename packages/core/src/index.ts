@@ -84,6 +84,23 @@ export { BaseChannel } from "./channels/base.ts";
 export { TelegramChannel } from "./channels/telegram.ts";
 export { DiscordChannel } from "./channels/discord.ts";
 export { WhatsAppChannel } from "./channels/whatsapp.ts";
+export {
+  WhatsAppCloudChannel,
+  WhatsAppCloudClient,
+  WhatsAppCloudError,
+  splitWhatsAppText,
+  parseWebhook as parseWhatsAppWebhook,
+  verifySignature as verifyWhatsAppSignature,
+  verifyChallenge as verifyWhatsAppChallenge,
+} from "./channels/whatsapp-cloud/index.ts";
+export type {
+  WhatsAppCloudConfig,
+  WhatsAppTemplate,
+  WhatsAppInbound,
+  WhatsAppWebhookEvent,
+  WhatsAppStatusEvent,
+  WhatsAppReferral,
+} from "./channels/whatsapp-cloud/index.ts";
 export { SlackChannel } from "./channels/slack.ts";
 export { WebChatChannel } from "./channels/webchat.ts";
 

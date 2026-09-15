@@ -1,5 +1,6 @@
 import { col, toIndexable, nextId } from "./hive.ts"
-import type { Collection } from "@johpaz/hive-db"
+import type { DocStore } from "./catalog.ts"
+import { currentTenant } from "./tenant.ts"
 import { logger } from "../utils/logger.ts"
 import { catalogModelKey } from "./model-id.ts"
 import { invalidateModelPricingCache } from "./usage.ts"
@@ -444,6 +445,7 @@ export const SEED_DATA: SeedData = {
     { id: "telegram", type: "telegram" },
     { id: "discord", type: "discord" },
     { id: "slack", type: "slack" },
+    { id: "whatsapp_cloud", type: "whatsapp_cloud" },
     { id: "whatsapp", type: "whatsapp" },
   ],
 
@@ -486,7 +488,7 @@ import { expandToolAllowlist } from "../agent/delegation-runtime.ts"
 const log = logger.child("seed");
 
 /** Insert-only-if-absent — the HiveDB equivalent of SQL `INSERT OR IGNORE`. */
-async function putIfAbsent<T>(c: Collection<T>, id: string, doc: T): Promise<void> {
+async function putIfAbsent<T>(c: DocStore<T>, id: string, doc: T): Promise<void> {
   if (!(await c.get(id))) await c.put(id, doc)
 }
 
@@ -791,146 +793,177 @@ export interface SeedOptions {
   specialists?: SpecialistSeedMode
 }
 
+/**
+ * Resiembra el catálogo estático de providers y modelos.
+ *
+ * Vive aparte porque con inquilino activo NO se llama. En un host
+ * multi-inquilino el catálogo que vale es el del host —Hive Cloud le baja a cada
+ * enjambre los providers que su workspace configuró, con su `base_url` y su
+ * `context_window`—, así que resembrar el estático encima significaba borrar y
+ * recrear los 139 modelos de `SEED_DATA` en la partición de cada enjambre, en
+ * cada arranque, para que un instante después los pisara Postgres.
+ */
+async function reseedProvidersAndModels(): Promise<void> {
+  const now = Date.now();
+
+  // 4️⃣ Providers
+  const providersCol = await col<ProviderDoc>("providers");
+  let providerCount = 0;
+  for (const provider of SEED_DATA.providers) {
+    await putIfAbsent(providersCol, provider.id, {
+      id: provider.id, name: provider.name, base_url: provider.baseUrl || null,
+      category: (provider.category || "llm") as ProviderDoc["category"],
+      num_ctx: null, num_gpu: -1, enabled: false, active: false, created_at: now,
+    });
+    providerCount++;
+  }
+  // If OLLAMA_HOST is set (e.g. Docker pointing to host machine), always update Ollama's base_url
+  const ollamaHost = process.env.OLLAMA_HOST;
+  if (ollamaHost) {
+    const ollama = await providersCol.get("ollama");
+    if (ollama) {
+      await providersCol.put("ollama", { ...ollama.doc, base_url: ollamaHost }, { expectedVersion: ollama.version });
+      log.info(`[seed] ✅ Ollama base_url set to ${ollamaHost} (from OLLAMA_HOST env)`);
+    }
+  }
+  // Older DBs were seeded with enabled=true hardcoded regardless of the user's own
+  // activation (active). enabled/active are otherwise always kept in sync by every
+  // mutation path (toggle, update, voice key save), so reconciling them here undoes
+  // exactly that stale default without touching providers the user genuinely activated.
+  let reconciledCount = 0;
+  for (const row of await providersCol.scan({})) {
+    if (row.doc.enabled !== row.doc.active) {
+      await providersCol.put(row.id, { ...row.doc, enabled: row.doc.active }, { expectedVersion: row.version });
+      reconciledCount++;
+    }
+  }
+  if (reconciledCount > 0) {
+    log.info(`[seed] 🔧 Reconciled ${reconciledCount} provider(s) with a stale enabled≠active state`);
+  }
+  log.info(`[seed] ✅ ${providerCount} providers procesados`);
+
+  // 5️⃣ Models — wipe & recreate.
+  //
+  // Actualizar el catálogo es editar SEED_DATA.models y arrancar: las filas de
+  // catálogo se borran enteras y se vuelven a crear, así ningún campo viejo
+  // (context_window, capabilities, precio) sobrevive a una entrada renombrada
+  // o corregida. Un upsert en sitio no daba esa garantía.
+  //
+  // Dos cosas sí se preservan a propósito:
+  //   - enabled/active por id, para no desactivar el modelo que el usuario
+  //     eligió cada vez que se publica un catálogo nuevo;
+  //   - las filas source != "catalog" (Ollama tags, /v1/models), que no tienen
+  //     origen canónico desde el que recrearse.
+  log.info("[seed] 🔄 Re-seeding models (wipe & recreate)...");
+  const modelsCol = await col<ModelDoc>("models");
+  const beforeWipe = await modelsCol.scan({});
+
+  const activationState = new Map(
+    beforeWipe.map((e) => [e.id, { enabled: e.doc.enabled, active: e.doc.active }])
+  );
+
+  let wipedModels = 0;
+  for (const row of beforeWipe) {
+    if (row.doc.source !== "catalog") continue;
+    await modelsCol.delete(row.id);
+    wipedModels++;
+  }
+
+  let modelCount = 0;
+  for (const model of SEED_DATA.models) {
+    const key = catalogModelKey(model.providerId, model.id);
+    const previous = activationState.get(key);
+    await modelsCol.put(key, {
+      id: key, provider_id: model.providerId, name: model.name,
+      model_type: model.modelType as ModelDoc["model_type"],
+      context_window: model.contextWindow || 0, capabilities: model.capabilities || null,
+      enabled: previous?.enabled ?? true, active: previous?.active ?? false,
+      source: "catalog",
+      input_per_1m: model.inputPer1M ?? null,
+      output_per_1m: model.outputPer1M ?? null,
+    });
+    modelCount++;
+  }
+  log.info(`[seed] 🗑️  ${wipedModels} modelo(s) de catálogo borrados y recreados desde SEED_DATA`);
+  invalidateModelPricingCache();
+
+  // An agent pointing at a model that just got removed would otherwise keep
+  // a dangling model_id — unlink it so loadAgentConfigFromDB() falls back to
+  // getDefaultLLM() instead of resolving a model_id that isn't there.
+  const liveModelIds = new Set((await modelsCol.scan({})).map((e) => e.id));
+  const agentsCol = await col<AgentDoc>("agents");
+  const allAgents = await agentsCol.scan({});
+  let unlinkedCount = 0;
+  for (const a of allAgents) {
+    if (a.doc.model_id && a.doc.model_id !== "__none__" && !liveModelIds.has(a.doc.model_id)) {
+      await agentsCol.put(a.id, { ...a.doc, model_id: toIndexable(null) }, { expectedVersion: a.version });
+      unlinkedCount++;
+    }
+  }
+  if (unlinkedCount > 0) {
+    log.info(`[seed] 🔗 Unlinked ${unlinkedCount} agent(s) from model(s) no longer in the catalog`);
+  }
+
+  // Los canales guardan el id del modelo de voz, no una FK: si el modelo salió
+  // del catálogo hay que repuntarlos a mano o la voz queda rota en silencio.
+  const voiceChannelsCol = await col<ChannelDoc>("channels");
+  let migratedVoice = 0;
+  for (const c of await voiceChannelsCol.scan({})) {
+    const patch: Partial<ChannelDoc> = {};
+    for (const field of ["stt_provider", "tts_provider"] as const) {
+      const current = c.doc[field];
+      if (current && current in RETIRED_VOICE_MODELS) {
+        patch[field] = RETIRED_VOICE_MODELS[current];
+      }
+    }
+    if (Object.keys(patch).length === 0) continue;
+    await voiceChannelsCol.put(c.id, { ...c.doc, ...patch }, { expectedVersion: c.version });
+    migratedVoice++;
+    log.info(`[seed] 🎙️  Canal ${c.id}: modelo de voz deprecado migrado ${JSON.stringify(patch)}`);
+  }
+  if (migratedVoice > 0) {
+    log.info(`[seed] 🎙️  ${migratedVoice} canal(es) repuntados a modelos de voz vigentes`);
+  }
+  log.info(`[seed] ✅ ${modelCount} models procesados`);
+}
+
 export async function seedAllData(opts?: SeedOptions): Promise<void> {
   log.info("[seed] 🌱 Iniciando seed de datos predeterminados...")
   const especialistas = opts?.specialists ?? "all"
 
-  await reseedToolsAndSkills(especialistas);
+  // El catálogo —tools, skills y ética— es contenido de la INSTALACIÓN y vive
+  // una sola vez: con inquilino activo `col()` lo sirve compartido y cada
+  // enjambre guarda únicamente lo que activó (ver storage/catalog.ts).
+  // Resembrarlo acá escribiría una copia por enjambre, que es exactamente lo que
+  // esa separación viene a quitar. Lo mismo con providers y modelos, que en un
+  // host multi-inquilino los pone el host.
+  const enInquilino = currentTenant() !== null;
+
+  if (!enInquilino) await reseedToolsAndSkills(especialistas);
 
   try {
     const now = Date.now();
 
     // 3️⃣ Ethics templates (globales)
-    const ethicsCol = await col<EthicsDoc>("ethics");
-    let ethicsCount = 0;
-    for (const ethics of SEED_DATA.ethics) {
-      await putIfAbsent(ethicsCol, ethics.id, {
-        id: ethics.id, name: ethics.name, description: ethics.description, content: ethics.content,
-        is_default: ethics.isDefault, enabled: true, active: ethics.isDefault,
-      });
-      ethicsCount++;
-    }
-    log.info(`[seed] ✅ ${ethicsCount} ethics templates procesados`);
-
-    // 4️⃣ Providers
-    const providersCol = await col<ProviderDoc>("providers");
-    let providerCount = 0;
-    for (const provider of SEED_DATA.providers) {
-      await putIfAbsent(providersCol, provider.id, {
-        id: provider.id, name: provider.name, base_url: provider.baseUrl || null,
-        category: (provider.category || "llm") as ProviderDoc["category"],
-        num_ctx: null, num_gpu: -1, enabled: false, active: false, created_at: now,
-      });
-      providerCount++;
-    }
-    // If OLLAMA_HOST is set (e.g. Docker pointing to host machine), always update Ollama's base_url
-    const ollamaHost = process.env.OLLAMA_HOST;
-    if (ollamaHost) {
-      const ollama = await providersCol.get("ollama");
-      if (ollama) {
-        await providersCol.put("ollama", { ...ollama.doc, base_url: ollamaHost }, { expectedVersion: ollama.version });
-        log.info(`[seed] ✅ Ollama base_url set to ${ollamaHost} (from OLLAMA_HOST env)`);
+    if (!enInquilino) {
+      const ethicsCol = await col<EthicsDoc>("ethics");
+      let ethicsCount = 0;
+      for (const ethics of SEED_DATA.ethics) {
+        await putIfAbsent(ethicsCol, ethics.id, {
+          id: ethics.id, name: ethics.name, description: ethics.description, content: ethics.content,
+          is_default: ethics.isDefault, enabled: true, active: ethics.isDefault,
+        });
+        ethicsCount++;
       }
-    }
-    // Older DBs were seeded with enabled=true hardcoded regardless of the user's own
-    // activation (active). enabled/active are otherwise always kept in sync by every
-    // mutation path (toggle, update, voice key save), so reconciling them here undoes
-    // exactly that stale default without touching providers the user genuinely activated.
-    let reconciledCount = 0;
-    for (const row of await providersCol.scan({})) {
-      if (row.doc.enabled !== row.doc.active) {
-        await providersCol.put(row.id, { ...row.doc, enabled: row.doc.active }, { expectedVersion: row.version });
-        reconciledCount++;
-      }
-    }
-    if (reconciledCount > 0) {
-      log.info(`[seed] 🔧 Reconciled ${reconciledCount} provider(s) with a stale enabled≠active state`);
-    }
-    log.info(`[seed] ✅ ${providerCount} providers procesados`);
-
-    // 5️⃣ Models — wipe & recreate.
-    //
-    // Actualizar el catálogo es editar SEED_DATA.models y arrancar: las filas de
-    // catálogo se borran enteras y se vuelven a crear, así ningún campo viejo
-    // (context_window, capabilities, precio) sobrevive a una entrada renombrada
-    // o corregida. Un upsert en sitio no daba esa garantía.
-    //
-    // Dos cosas sí se preservan a propósito:
-    //   - enabled/active por id, para no desactivar el modelo que el usuario
-    //     eligió cada vez que se publica un catálogo nuevo;
-    //   - las filas source != "catalog" (Ollama tags, /v1/models), que no tienen
-    //     origen canónico desde el que recrearse.
-    log.info("[seed] 🔄 Re-seeding models (wipe & recreate)...");
-    const modelsCol = await col<ModelDoc>("models");
-    const beforeWipe = await modelsCol.scan({});
-
-    const activationState = new Map(
-      beforeWipe.map((e) => [e.id, { enabled: e.doc.enabled, active: e.doc.active }])
-    );
-
-    let wipedModels = 0;
-    for (const row of beforeWipe) {
-      if (row.doc.source !== "catalog") continue;
-      await modelsCol.delete(row.id);
-      wipedModels++;
+      log.info(`[seed] ✅ ${ethicsCount} ethics templates procesados`);
     }
 
-    let modelCount = 0;
-    for (const model of SEED_DATA.models) {
-      const key = catalogModelKey(model.providerId, model.id);
-      const previous = activationState.get(key);
-      await modelsCol.put(key, {
-        id: key, provider_id: model.providerId, name: model.name,
-        model_type: model.modelType as ModelDoc["model_type"],
-        context_window: model.contextWindow || 0, capabilities: model.capabilities || null,
-        enabled: previous?.enabled ?? true, active: previous?.active ?? false,
-        source: "catalog",
-        input_per_1m: model.inputPer1M ?? null,
-        output_per_1m: model.outputPer1M ?? null,
-      });
-      modelCount++;
-    }
-    log.info(`[seed] 🗑️  ${wipedModels} modelo(s) de catálogo borrados y recreados desde SEED_DATA`);
-    invalidateModelPricingCache();
+    // 4️⃣ y 5️⃣ Providers y modelos
+    if (!enInquilino) await reseedProvidersAndModels();
 
-    // An agent pointing at a model that just got removed would otherwise keep
-    // a dangling model_id — unlink it so loadAgentConfigFromDB() falls back to
-    // getDefaultLLM() instead of resolving a model_id that isn't there.
-    const liveModelIds = new Set((await modelsCol.scan({})).map((e) => e.id));
+    // Los agentes son del inquilino: cada enjambre tiene los suyos, y por eso
+    // esto sí corre siempre. Antes se declaraba dentro del bloque de modelos.
     const agentsCol = await col<AgentDoc>("agents");
-    const allAgents = await agentsCol.scan({});
-    let unlinkedCount = 0;
-    for (const a of allAgents) {
-      if (a.doc.model_id && a.doc.model_id !== "__none__" && !liveModelIds.has(a.doc.model_id)) {
-        await agentsCol.put(a.id, { ...a.doc, model_id: toIndexable(null) }, { expectedVersion: a.version });
-        unlinkedCount++;
-      }
-    }
-    if (unlinkedCount > 0) {
-      log.info(`[seed] 🔗 Unlinked ${unlinkedCount} agent(s) from model(s) no longer in the catalog`);
-    }
-
-    // Los canales guardan el id del modelo de voz, no una FK: si el modelo salió
-    // del catálogo hay que repuntarlos a mano o la voz queda rota en silencio.
-    const voiceChannelsCol = await col<ChannelDoc>("channels");
-    let migratedVoice = 0;
-    for (const c of await voiceChannelsCol.scan({})) {
-      const patch: Partial<ChannelDoc> = {};
-      for (const field of ["stt_provider", "tts_provider"] as const) {
-        const current = c.doc[field];
-        if (current && current in RETIRED_VOICE_MODELS) {
-          patch[field] = RETIRED_VOICE_MODELS[current];
-        }
-      }
-      if (Object.keys(patch).length === 0) continue;
-      await voiceChannelsCol.put(c.id, { ...c.doc, ...patch }, { expectedVersion: c.version });
-      migratedVoice++;
-      log.info(`[seed] 🎙️  Canal ${c.id}: modelo de voz deprecado migrado ${JSON.stringify(patch)}`);
-    }
-    if (migratedVoice > 0) {
-      log.info(`[seed] 🎙️  ${migratedVoice} canal(es) repuntados a modelos de voz vigentes`);
-    }
-    log.info(`[seed] ✅ ${modelCount} models procesados`);
 
     // 6️⃣ MCP servers
     const mcpCol = await col<McpServerDoc>("mcpServers");

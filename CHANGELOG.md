@@ -22,7 +22,88 @@
   `buildAgentContext`), de las que depende el aislamiento entre inquilinos del
   log causal descrito en *Corregido*.
 
+### WhatsApp por la API oficial de Meta
+
+- **Canal nuevo `whatsapp_cloud`**: WhatsApp Business por la Cloud API, que es
+  lo que puede usar una empresa. Incluye `WhatsAppCloudClient` (texto con
+  partido automático en 4096 caracteres, plantillas, audio, marcar leído con
+  "escribiendo…" y descarga de medios), las funciones de webhook
+  (`verifyWhatsAppSignature`, `verifyWhatsAppChallenge`, `parseWhatsAppWebhook`)
+  y el canal `WhatsAppCloudChannel`. Sin dependencias nuevas: sólo `fetch`.
+- El gateway enruta `GET|POST /webhooks/whatsapp-cloud/:accountId` cuando se le
+  pasa `channelManager`. Meta exige HTTPS público, así que hace falta un proxy
+  inverso o un túnel por delante.
+- La versión del Graph se resuelve en un solo lugar (`META_GRAPH_API_VERSION`,
+  por defecto **v26.0**). Cada versión caduca a los ~2 años y Meta redirige en
+  silencio a la más vieja que siga viva; tenerla centralizada es lo que evita
+  enterarse tarde.
+- Fuera de la ventana de 24 h el canal manda la plantilla de
+  `windowFallbackTemplate`, y si no hay ninguna configurada lanza un error que
+  lo dice (131047). La narración de progreso no se envía por defecto
+  (`sendProgress: false`): desde el 1/10/2026 Meta cobra cada mensaje de
+  servicio dentro de la ventana.
+- El parser recorre todas las `entry` y `changes` del webhook, y el canal
+  descarta los reintentos de Meta por id de mensaje.
+- **Baileys se carga recién al conectar el canal `whatsapp`.** Antes se
+  importaba al cargar el índice del SDK, así que cualquier consumidor —aunque
+  no usara canales— se traía Baileys entero y su parche de
+  `process.stderr.write` en cada proceso. Quien usa el canal por código QR no
+  ve ningún cambio.
+
+### Catálogo compartido entre inquilinos
+
+- **El catálogo se instala una sola vez.** `tools`, `skills` y `ethics` dejan de
+  copiarse en la partición de cada inquilino: su contenido vive en la colección
+  sin prefijo —la misma que ve una instalación local— y cada inquilino guarda
+  únicamente lo que activó, en `catalogActivations`. Un enjambre nuevo arranca
+  con **cero escrituras** de catálogo, y encender una tool guarda una fila de
+  elección en lugar de una copia de la fila entera.
+- **Providers y modelos ya no se resiembran dentro de un inquilino.** En un host
+  multi-inquilino el catálogo que vale es el del host, así que `seedAllData()`
+  saltea el estático cuando hay tenant activo. Antes borraba y recreaba los 139
+  modelos de `SEED_DATA` en la partición de cada enjambre, en cada arranque, para
+  que un instante después los pisara el host.
+- Lo que un inquilino **crea** sigue siendo suyo y privado: las tools de un
+  endpoint de API, o una skill o un código de ética propios, se escriben en su
+  partición como siempre. Editar el contenido de una fila del catálogo también
+  deja una copia privada, y borrarla la oculta sólo para él.
+- API nueva en `@johpaz/hive-sdk/storage`: `setCatalogActivation`,
+  `clearCatalogActivation`, `listCatalogActivations`, `sharedCatalogCol`,
+  `CATALOG_COLLECTIONS` y el tipo `DocStore`, que es lo que ahora devuelve
+  `col()` — la clase `Collection` de hive-db lo satisface tal cual, así que no
+  cambia nada para quien la recibe.
+- **Sin inquilino en scope no cambia nada**: una instalación local sigue viendo
+  una sola partición, con el catálogo y su `active` en la misma fila.
+- **El índice de capacidades también se comparte, y eso destapa dos fallas que
+  ya existían.** Todo documento declara ahora su ámbito —el inquilino que lo
+  escribió, o `_` si es del catálogo— y `searchCapabilities()` consulta los dos
+  cuando hay inquilino activo:
+  - Antes el catálogo se indexaba **sin** filtro de inquilino y la búsqueda
+    desde un enjambre filtraba **por** su inquilino, así que dentro de un
+    enjambre no se encontraba NADA del catálogo: ni una tool ni una skill. El
+    agente sólo descubría sus tools de MCP y las de sus endpoints.
+  - Y un reindexado del catálogo —el que corre en cada arranque del gateway—
+    borraba por `type` a secas, llevándose por delante lo que cada inquilino
+    tenía indexado. Ahora el borrado va acotado a su ámbito.
+  - Encima de la búsqueda manda la elección: una capacidad que el inquilino
+    apagó no se le ofrece, aunque esté en el catálogo y puntúe primero.
+  Cubierto por `packages/core/src/agent/capability-search.test.ts` y
+  `packages/core/src/storage/catalog.test.ts`.
+
 ### Corregido
+
+- **Con un tenant activo, el log causal se apagaba en lugar de acotarse.**
+  `causalThread`, `toolStats` y `buildAgentContext` recorrían todos los shards
+  de la base, así que con un tenant en scope `causalReadsEnabled()` las apagaba:
+  en un host multi-inquilino el reflector G9 y el contexto causal del
+  compilador no corrían nunca. Ahora las tres lecturas van siempre acotadas a
+  los agentes que corresponden —el agente del turno, o los del lote de trazas— y
+  el apagado desaparece. Además el shard de cada evento pasa a ser
+  `causalAgentKey(agentId)`: con tenant lleva el tenant delante (`t_…:agente`,
+  la misma forma que los ids del índice BM25), así que dos inquilinos con un
+  agente del mismo id ya no comparten shard. Una lista de agentes vacía se salta
+  la lectura en vez de pasarse al motor, que la trataría como "todos los
+  shards". Cubierto por `test/causal-tenant-scope.test.ts`.
 
 - **`browser_scrape` extraía con una tool que no ve lo que el navegador
   renderizó.** La skill existe para sitios dinámicos, y su paso de extracción
@@ -197,6 +278,11 @@
   anteriores**: el archivo viaja en el tarball publicado.
 
 ### Cambiado
+
+- **El `toolStats` del reflector se acota a los agentes del lote**, también sin
+  tenant. Antes sumaba el historial de la tool de todos los agentes de la base;
+  ahora el de los agentes cuyas trazas se están analizando. Es la misma
+  semántica con y sin tenant, y no recorre el log entero.
 
 - **Los tests que manejan un navegador real son opt-in (`BROWSER_TESTS=1`).**
   Su guarda era `isWebViewSupported()`, que sólo comprueba que exista un binario

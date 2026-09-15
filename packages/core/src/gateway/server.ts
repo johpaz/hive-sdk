@@ -5,11 +5,13 @@
  * - POST /chat — chat with an agent
  * - GET /status — health check
  * - WebSocket /ws — real-time streaming
+ * - GET|POST /webhooks/whatsapp-cloud/:accountId — WhatsApp por la API oficial
  */
 
 import { logger } from "../utils/logger.ts";
 import { runAgent } from "../agent/agent-loop.ts";
 import type { MCPClientManager } from "../mcp/index.ts";
+import type { ChannelManager } from "../channels/manager.ts";
 
 const log = logger.child("gateway");
 
@@ -18,6 +20,12 @@ export interface GatewayConfig {
   port?: number;
   agentId?: string;
   mcpManager?: MCPClientManager | null;
+  /**
+   * Hace falta para los canales que reciben por webhook, como WhatsApp por la
+   * API oficial de Meta. Sin él, el gateway no tiene a quién entregarle lo que
+   * Meta empuja.
+   */
+  channelManager?: ChannelManager | null;
 }
 
 export async function startGateway(config: GatewayConfig = {}) {
@@ -52,6 +60,22 @@ export async function startGateway(config: GatewayConfig = {}) {
       // Chat endpoint
       if (url.pathname === "/chat" && req.method === "POST") {
         return handleChat(req, agentId, config.mcpManager);
+      }
+
+      // WhatsApp por la API oficial: Meta empuja acá cada mensaje del número.
+      // El gateway escucha en 127.0.0.1 y Meta exige HTTPS público, así que
+      // esta ruta necesita un proxy inverso o un túnel por delante.
+      const whatsappCloud = url.pathname.match(/^\/webhooks\/whatsapp-cloud\/([^/]+)$/);
+      if (whatsappCloud) {
+        if (!config.channelManager) {
+          log.warn("llegó un webhook de WhatsApp pero el gateway no tiene ChannelManager");
+          return new Response("Channels not configured", { status: 503 });
+        }
+        return config.channelManager.handleWebhook(
+          "whatsapp_cloud",
+          decodeURIComponent(whatsappCloud[1]!),
+          req
+        );
       }
 
       return new Response("Not Found", { status: 404 });

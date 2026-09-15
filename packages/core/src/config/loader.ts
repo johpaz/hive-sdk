@@ -6,7 +6,7 @@ import { availableParallelism, homedir } from "node:os";
 
 const LogLevelSchema = z.enum(["debug", "info", "warn", "error"]);
 const DMPolicySchema = z.enum(["open", "pairing", "allowlist"]);
-const TransportSchema = z.enum(["stdio", "sse", "websocket"]);
+const TransportSchema = z.enum(["stdio", "sse", "websocket", "http"]);
 
 export function loadEnv(hiveDir: string): void {
   const envPath = path.join(hiveDir, ".env");
@@ -559,6 +559,8 @@ function buildDefaultConfig(): Config {
         slack: 40000,
         webchat: 100000,
         whatsapp: 65536,
+        // Meta rechaza cualquier `text.body` de más de 4096 caracteres.
+        whatsapp_cloud: 4096,
       },
       skillScanning: true,
       warnOnInsecureConfig: true,

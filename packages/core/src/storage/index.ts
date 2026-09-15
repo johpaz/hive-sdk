@@ -41,6 +41,19 @@ export {
   BROADCAST,
 } from "./hive.ts";
 
+// ─── Catálogo compartido y activación por inquilino ──────────────────────────
+// El contenido del catálogo (tools, skills, ética) se instala una sola vez; cada
+// inquilino guarda sólo lo que activó — ver storage/catalog.ts.
+export {
+  CATALOG_COLLECTIONS,
+  setCatalogActivation,
+  clearCatalogActivation,
+  listCatalogActivations,
+  sharedCatalogCol,
+  esCatalogoCompartido,
+} from "./catalog.ts";
+export type { DocStore } from "./catalog.ts";
+
 // ─── Shapes de documento ─────────────────────────────────────────────────────
 export type * from "./collections.ts";
 
