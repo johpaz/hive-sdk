@@ -357,12 +357,20 @@ export async function* runAgent(
       channel: opts.channel,
       source: opts.historySource ?? "message",
     })
-    // Run compaction if conversation history is getting large
+    // Run compaction if conversation history is getting large.
+    // El modelo del turno viaja con sus credenciales: el resumen es una llamada
+    // al modelo como cualquier otra y tiene que cobrarse a la misma cuenta.
     await maybeCompact(
       opts.threadId,
       opts.channel && opts.userId
         ? { channel: opts.channel, userId: opts.userId }
-        : undefined
+        : undefined,
+      {
+        provider: providerCfg.provider,
+        model: providerCfg.model,
+        credentials: opts.credentials,
+        contextWindow: providerCfg.contextWindow,
+      }
     )
   }
 

@@ -101,17 +101,23 @@ describe("search_knowledge respeta la lista blanca del agente", () => {
 });
 
 describe("la compactación respeta el umbral configurado", () => {
-  test("`compactionThreshold` deja de ser decorativo", async () => {
+  test("`compactionThreshold` gana sobre lo deducido del modelo", async () => {
     const { loadConfig } = await import("../packages/core/src/config/loader");
+    const { resolveCompactionThreshold } = await import("../packages/core/src/agent/compaction");
     const cfg = loadConfig();
 
     // El esquema lo declara; lo que faltaba era que alguien lo leyera.
     expect(cfg.agent?.context).toBeDefined();
 
-    const compaction = await Bun.file("packages/core/src/agent/compaction.ts").text();
-    expect(compaction).toContain("compactionThreshold");
-    // Y que gane sobre lo deducido del modelo: es lo que el usuario pidió.
-    expect(compaction).toContain("if (configurado && configurado > 0)");
+    // Un número absoluto se respeta tal cual, por encima del 25 % del modelo.
+    expect(resolveCompactionThreshold(5_000, 200_000)).toBe(5_000);
+    expect(resolveCompactionThreshold(undefined, 200_000)).toBe(50_000);
+
+    // Y el valor por defecto es una proporción de la ventana, no un número de
+    // tokens: leerlo como tokens dejaba el umbral en 0.8 y compactaba siempre.
+    // Ver test/compaction-threshold.test.ts.
+    expect(cfg.agent?.context?.compactionThreshold).toBeLessThanOrEqual(1);
+    expect(resolveCompactionThreshold(cfg.agent?.context?.compactionThreshold, 200_000)).toBeGreaterThan(1_000);
   });
 });
 

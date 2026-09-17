@@ -579,6 +579,29 @@
   job que genera un scaffold con `create-app` y lo typechequea contra el SDK de
   ese commit.
 
+## 0.4.9
+
+### Corregido
+
+- **La compactación de historial dejaba de ser excepcional y corría casi en cada
+  turno.** `agent.context.compactionThreshold` es una proporción de la ventana
+  del modelo —su valor por defecto es `0.8`, o sea el 80 %— pero se leía como un
+  número de tokens: el umbral efectivo quedaba en 0.8 tokens. Cualquier hilo con
+  más de cinco mensajes se resumía en cada turno, lo que cuesta una llamada extra
+  al modelo por mensaje y reemplaza el historial por un resumen desde el primer
+  intercambio. Ahora un valor menor o igual a 1 se aplica sobre la ventana del
+  modelo y uno mayor se sigue leyendo como tokens, para quien fijó un número
+  absoluto. El umbral se calcula además con la ventana del modelo que corre el
+  turno, no con la del coordinador.
+- **El resumen se pedía con una credencial global.** `compactThread` resolvía el
+  modelo con `getDefaultLLM()` y llamaba a `resolveProviderConfig` sin
+  credenciales, así que la llave salía del secret store, del llavero del sistema
+  o del entorno del proceso. En una instalación de un solo usuario da igual; en
+  una multi-inquilino significa resumir la conversación de un cliente con la
+  llave de la plataforma o de otro cliente. `maybeCompact` y `compactThread`
+  aceptan ahora el modelo y las credenciales del turno (`CompactionLLM`), y el
+  agent loop les pasa los suyos. Sin ese dato se comportan como antes.
+
 ## 0.1.5
 
 Sincronización del SDK con el runtime de agentes de `hive`. **Trae rupturas de

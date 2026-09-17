@@ -26,7 +26,10 @@ import {
   type StoredMessage,
 } from "./conversation-store.ts"
 import { estimateTokens } from "../utils/toon.ts"
-import { callLLM, resolveProviderConfig, getDefaultLLM, type ContentPart } from "./llm-client.ts"
+import {
+  callLLM, resolveProviderConfig, getDefaultLLM,
+  type ContentPart, type ProviderCredentials,
+} from "./llm-client.ts"
 import { col, fromIndexable } from "../storage/hive.ts"
 import type { AgentDoc, ModelDoc } from "../storage/collections.ts"
 import { loadConfig } from "../config/loader.ts"
@@ -41,6 +44,61 @@ const KEEP_LAST_N_MESSAGES = 5         // always keep most recent N messages
 const TOOL_RESULT_MAX_CHARS = 200      // max chars for old tool results after clearing
 const MAX_TRANSCRIPT_MSGS = 30         // cap messages sent to summarizer (avoids OOM on small models)
 const MAX_MSG_CHARS = 300              // chars per message in transcript
+/** Ventana asumida cuando no se conoce la del modelo: `COMPACT_TOKEN_THRESHOLD` es su 25 %. */
+const ASSUMED_CONTEXT_WINDOW = 128_000
+const DEFAULT_CONTEXT_RATIO = 0.25
+
+/**
+ * El modelo con el que se pide el resumen: el del turno que disparó la
+ * compactación, con SUS credenciales.
+ */
+export interface CompactionLLM {
+  provider?: string
+  model?: string
+  /** En multi-inquilino, la llave del cliente. Sin esto se usaría una global. */
+  credentials?: ProviderCredentials
+  /** La ventana del modelo, si quien llama ya la resolvió. */
+  contextWindow?: number
+}
+
+/**
+ * A partir de cuántos tokens de historial se compacta.
+ *
+ * `agent.context.compactionThreshold` es una PROPORCIÓN de la ventana del
+ * modelo —su valor por defecto es 0.8, o sea el 80 %—, pero se leía como si
+ * fueran tokens. Con la configuración por defecto el umbral quedaba en 0.8
+ * tokens: cualquier hilo con más de cinco mensajes se resumía en cada turno,
+ * pagando una llamada extra al modelo y reemplazando el historial por un
+ * resumen desde el primer intercambio. Un valor mayor que 1 se sigue leyendo
+ * como tokens, que es lo que espera quien fijó un número absoluto.
+ */
+export function resolveCompactionThreshold(configured: number | undefined, contextWindow?: number): number {
+  const known = contextWindow && contextWindow > 0 ? contextWindow : undefined
+  if (typeof configured === "number" && Number.isFinite(configured) && configured > 0) {
+    return configured <= 1
+      ? Math.floor((known ?? ASSUMED_CONTEXT_WINDOW) * configured)
+      : Math.floor(configured)
+  }
+  return known ? Math.floor(known * DEFAULT_CONTEXT_RATIO) : COMPACT_TOKEN_THRESHOLD
+}
+
+/** La ventana del modelo del turno; si no se sabe cuál es, la del coordinador. */
+async function modelContextWindow(modelId?: string): Promise<number | undefined> {
+  try {
+    const modelsCol = await col<ModelDoc>("models")
+    if (modelId) return (await modelsCol.get(modelId))?.doc.context_window || undefined
+    const agentsCol = await col<AgentDoc>("agents")
+    const coordinators = await agentsCol.findBy("role", "coordinator", { limit: 1 })
+    // El id se busca completo: recortar el primer segmento rompía cualquier
+    // modelo cuyo nombre lleve barra (meta/llama-3.3-70b-instruct buscaba
+    // "llama-3.3-70b-instruct", no encontraba nada y caía al default).
+    const id = fromIndexable(coordinators[0]?.doc.model_id ?? null)
+    if (!id) return undefined
+    return (await modelsCol.get(id))?.doc.context_window || undefined
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Check if compaction is needed and run it if so.
@@ -48,37 +106,16 @@ const MAX_MSG_CHARS = 300              // chars per message in transcript
  */
 export async function maybeCompact(
   threadId: string,
-  notify?: { channel: string; userId: string }
+  notify?: { channel: string; userId: string },
+  llm?: CompactionLLM
 ): Promise<void> {
   try {
     const totalTokens = await getTotalTokens(threadId)
-
-    // Orden de precedencia: lo que el usuario configuró gana sobre lo que se
-    // deduce del modelo, y eso gana sobre la constante.
-    //
-    // `agent.context.compactionThreshold` estaba en el esquema de configuración
-    // y **no lo leía nadie**: alguien podía ajustarlo y no pasaba nada. Una
-    // opción que no hace nada es peor que no tenerla, porque el usuario cree
-    // que cambió algo.
-    let effectiveThreshold = COMPACT_TOKEN_THRESHOLD
-    const configurado = loadConfig().agent?.context?.compactionThreshold
-    try {
-      const agentsCol = await col<AgentDoc>("agents")
-      const coordinators = await agentsCol.findBy("role", "coordinator", { limit: 1 })
-      const modelId = fromIndexable(coordinators[0]?.doc.model_id ?? null)
-      if (modelId) {
-        const modelsCol = await col<ModelDoc>("models")
-        // El id se busca completo: recortar el primer segmento rompía cualquier
-        // modelo cuyo nombre lleve barra (meta/llama-3.3-70b-instruct buscaba
-        // "llama-3.3-70b-instruct", no encontraba nada y caía al default).
-        const modelEntry = await modelsCol.get(modelId)
-        if (modelEntry?.doc.context_window) {
-          effectiveThreshold = Math.floor(modelEntry.doc.context_window * 0.25)
-        }
-      }
-    } catch { /* use default threshold */ }
-
-    if (configurado && configurado > 0) effectiveThreshold = configurado
+    const contextWindow = llm?.contextWindow ?? (await modelContextWindow(llm?.model))
+    const effectiveThreshold = resolveCompactionThreshold(
+      loadConfig().agent?.context?.compactionThreshold,
+      contextWindow,
+    )
 
     if (totalTokens < effectiveThreshold) return
 
@@ -96,8 +133,8 @@ export async function maybeCompact(
     // Already summarized up to near the current state
     if (summary && summary.last_message_id > totalMessages - KEEP_LAST_N_MESSAGES) return
 
-    log.info(`[compaction] Compacting thread=${threadId} tokens=${totalTokens}`)
-    await compactThread(threadId, notify)
+    log.info(`[compaction] Compacting thread=${threadId} tokens=${totalTokens} threshold=${effectiveThreshold}`)
+    await compactThread(threadId, notify, llm)
   } catch (err) {
     log.warn("[compaction] Error during compaction check:", err)
   }
@@ -139,7 +176,8 @@ export function renderTranscript(rows: StoredMessage[], maxMsgChars = MAX_MSG_CH
  */
 export async function compactThread(
   threadId: string,
-  notify?: { channel: string; userId: string }
+  notify?: { channel: string; userId: string },
+  llm?: CompactionLLM
 ): Promise<void> {
   const allMessages = await getHistory(threadId)
   if (allMessages.length <= KEEP_LAST_N_MESSAGES) return
@@ -162,10 +200,18 @@ export async function compactThread(
   const capped = toSummarize.slice(-MAX_TRANSCRIPT_MSGS)
   const transcript = renderTranscript(capped)
 
-  const defaultLLM = await getDefaultLLM()
-  if (!defaultLLM) throw new Error("No active LLM providers/models configured in the database")
+  // El modelo del turno y SUS credenciales. Antes el resumen se pedía siempre
+  // con `getDefaultLLM()` y sin credenciales, así que `resolveProviderConfig`
+  // caía al secret store, al llavero del sistema o al entorno: en una
+  // instalación multi-inquilino eso resume la conversación de un cliente con
+  // la llave de la plataforma (o de otro cliente). Sin `llm` se comporta como
+  // antes, que es lo que necesita una instalación de un solo usuario.
+  const target = llm?.provider && llm.model
+    ? { provider: llm.provider, model: llm.model }
+    : await getDefaultLLM()
+  if (!target) throw new Error("No active LLM providers/models configured in the database")
 
-  const providerCfg = await resolveProviderConfig(defaultLLM.provider, defaultLLM.model)
+  const providerCfg = await resolveProviderConfig(target.provider, target.model, llm?.credentials)
 
   const summaryResponse = await callLLM({
     ...providerCfg,
