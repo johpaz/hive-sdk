@@ -6,6 +6,8 @@ export * from "./catalog-selector.ts";
 export * from "./context-compiler.ts";
 export * from "./conversation-store.ts";
 export * from "./delegation-runtime.ts";
+export * from "./jev-decisions.ts";
+export * from "./jev-planner.ts";
 export * from "./llm-client.ts";
 export * from "./minimal-loadout.ts";
 export * from "./playbook-selector.ts";

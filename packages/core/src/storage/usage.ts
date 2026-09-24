@@ -154,6 +154,15 @@ export interface UsageRecord {
   created_at: number;
 }
 
+export interface JevUsageSummary {
+  decisions: number;
+  costUsd: number;
+  /** Estimated main-model input tokens avoided; negative when Jev added more than it removed. */
+  savedTokens: number;
+  savedCostUsd: number;
+  byAgent: Record<string, { decisions: number; costUsd: number; savedTokens: number; savedCostUsd: number }>;
+}
+
 export interface UsageSummary {
   totalTokens: number;
   totalInputTokens: number;
@@ -169,6 +178,7 @@ export interface UsageSummary {
   byProvider: Record<string, { tokens: number; costUsd: number; inputTokens: number; outputTokens: number }>;
   byModel: Record<string, { tokens: number; costUsd: number; provider: string; inputTokens: number; outputTokens: number }>;
   recentRecords: UsageRecord[];
+  jev: JevUsageSummary;
 }
 
 export function recordUsage(options: {
@@ -233,13 +243,15 @@ export async function getUsageStats(hours: number = 24): Promise<UsageSummary> {
   const rollupsCol = await col<UsageRollupDoc>("usageRollups");
   const buckets = hourBucketsSince(hours);
   const rollups = (await Promise.all(buckets.map((id) => rollupsCol.get(id))))
-    .map((e) => e?.doc ?? emptyRollup());
+    // A bucket touched only by recordJevDecision lacks the token fields.
+    .map((e) => ({ ...emptyRollup(), ...e?.doc }));
 
   const providerMap: UsageSummary["byProvider"] = {};
   const modelMap: UsageSummary["byModel"] = {};
   let totalInput = 0, totalOutput = 0, totalCost = 0;
   let toonSavedTokens = 0, toonSavedCost = 0, toonSavedBytes = 0;
   let toonJsonTokens = 0, toonToonTokens = 0, toonJsonBytes = 0;
+  const jev: JevUsageSummary = { decisions: 0, costUsd: 0, savedTokens: 0, savedCostUsd: 0, byAgent: {} };
 
   for (const r of rollups) {
     totalInput += r.inputTokens;
@@ -251,6 +263,18 @@ export async function getUsageStats(hours: number = 24): Promise<UsageSummary> {
     toonJsonTokens += r.toonJsonTokens;
     toonToonTokens += r.toonToonTokens;
     toonJsonBytes += r.toonJsonBytes;
+    jev.decisions += r.jevDecisions ?? 0;
+    jev.costUsd += r.jevCostUsd ?? 0;
+    jev.savedTokens += r.jevSavedTokens ?? 0;
+    jev.savedCostUsd += r.jevSavedCostUsd ?? 0;
+    for (const [agentId, a] of Object.entries(r.jevByAgent ?? {})) {
+      const cur = jev.byAgent[agentId] ?? { decisions: 0, costUsd: 0, savedTokens: 0, savedCostUsd: 0 };
+      cur.decisions += a.jevDecisions ?? 0;
+      cur.costUsd += a.jevCostUsd ?? 0;
+      cur.savedTokens += a.jevSavedTokens ?? 0;
+      cur.savedCostUsd += a.jevSavedCostUsd ?? 0;
+      jev.byAgent[agentId] = cur;
+    }
 
     for (const [provider, p] of Object.entries(r.byProvider ?? {})) {
       const cur = providerMap[provider] ?? { tokens: 0, costUsd: 0, inputTokens: 0, outputTokens: 0 };
@@ -301,8 +325,37 @@ export async function getUsageStats(hours: number = 24): Promise<UsageSummary> {
     toonSavingsPercent,
     byProvider: providerMap,
     byModel: modelMap,
-    recentRecords
+    recentRecords,
+    jev,
   };
+}
+
+/**
+ * Persists one Jev decision into the hourly rollup. The avoided tokens are
+ * priced with the advised agent's own model (input rate), through the same
+ * catalog lookup as real usage, so "saved" and "spent" are comparable.
+ */
+export function recordJevDecision(options: {
+  agentId: string;
+  provider: string;
+  model: string;
+  savedTokens: number;
+  costUsd: number;
+}): void {
+  Promise.resolve().then(async () => {
+    try {
+      const unitCost = await calculateCost(options.provider, options.model, Math.abs(options.savedTokens), 0);
+      const savedCostUsd = Math.sign(options.savedTokens) * unitCost;
+      await bumpRollup("usageRollups", hourBucket(Date.now()), {
+        jevDecisions: 1,
+        jevCostUsd: options.costUsd,
+        jevSavedTokens: options.savedTokens,
+        jevSavedCostUsd: savedCostUsd,
+      }, { field: "jevByAgent", key: options.agentId });
+    } catch (error) {
+      log.warn(`[JEV] Failed to record decision:`, error);
+    }
+  });
 }
 
 /**

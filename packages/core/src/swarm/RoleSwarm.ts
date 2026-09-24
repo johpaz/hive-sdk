@@ -21,6 +21,7 @@
  */
 
 import { runAgentIsolated } from "../agent/agent-loop.ts"
+import type { JevOption } from "../agent/jev-decisions.ts"
 import type { ProviderCredentials } from "../agent/llm-client.ts"
 import { logger } from "../utils/logger.ts"
 
@@ -50,6 +51,7 @@ export type AgentInvoker = (input: {
   threadId: string
   channel?: string
   credentials?: ProviderCredentials
+  jev?: JevOption
   signal?: AbortSignal
 }) => Promise<string>
 
@@ -60,6 +62,7 @@ export const defaultInvoker: AgentInvoker = async (input) =>
     threadId: input.threadId,
     channel: input.channel,
     credentials: input.credentials,
+    jev: input.jev,
     signal: input.signal,
   })
 
@@ -83,6 +86,8 @@ export interface RoleSwarmOptions {
   maxDelegations?: number
   /** Credenciales del inquilino, propagadas a cada agente. */
   credentials?: ProviderCredentials
+  /** Jev del inquilino, propagado a cada agente igual que `credentials`. */
+  jev?: JevOption
   signal?: AbortSignal
   /** Se llama en cada paso; acá persiste el consumidor si quiere. */
   onMessage?: (message: SwarmMessage) => void | Promise<void>
@@ -129,6 +134,7 @@ export async function runRoleSwarm(opts: RoleSwarmOptions): Promise<RoleSwarmRes
       threadId,
       channel: opts.channel,
       credentials: opts.credentials,
+      jev: opts.jev,
       signal: opts.signal,
     })
   }

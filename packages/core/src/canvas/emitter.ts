@@ -15,6 +15,8 @@ export type CanvasEventType =
   | "canvas:edge_add"
   | "canvas:edge_remove"
   | "canvas:work_event"
+  | "canvas:jev_decision"
+  | "canvas:jev_status"
   | "ag-ui:event"
 
 export type CanvasWorkPhase =
@@ -63,6 +65,23 @@ export function subscribeCanvas(ws: { send: (data: string) => void }) {
 
 export function unsubscribeCanvas(ws: { send: (data: string) => void }) {
   subscribers.delete(ws)
+}
+
+/** One Jev decision, shown by the office's oracle as a beam to the agent it advised. */
+export interface CanvasJevDecision {
+  eventId: string
+  agentId: string
+  kind: "context" | "iteration" | "parallel"
+  /** Short Spanish description of what was selected ("4/15 mensajes · 9/24 herramientas"). */
+  summary: string
+  /** Estimated main-model input tokens this decision avoided (chars/4); negative when it added context. */
+  savedTokens: number
+  latencyMs: number
+  costUsd: number
+  recommendedAgentId?: string | null
+  /** MCP servers the recommended specialist needs that are off; the coordinator asks the user to turn them on. */
+  mcpOff?: string[]
+  totals: { decisions: number; savedTokens: number; costUsd: number }
 }
 
 export function emitCanvas(type: CanvasEventType, data: any) {

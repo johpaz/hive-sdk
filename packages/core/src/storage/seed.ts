@@ -117,6 +117,7 @@ export const SEED_DATA: SeedData = {
     { id: "notify", name: "notify", category: "core", description: "Enviar notificación al usuario. Sinónimos: notificar, enviar notificación, alertar, aviso" },
     { id: "save_note", name: "save_note", category: "core", description: "Guardar nota persistente en el scratchpad. Sinónimos: guardar nota, escribir nota, recordatorio rápido, apuntar" },
     { id: "report_progress", name: "report_progress", category: "core", description: "Reportar progreso actual al usuario. Sinónimos: reportar progreso, informar estado, actualizar progreso, porcentaje" },
+    { id: "conversation_read", name: "conversation_read", category: "core", description: "Recuperar mensajes anteriores de esta conversación por ID o búsqueda de texto. Sinónimos: leer conversación, recuperar contexto, historial omitido" },
 
     // ─────────────────────────────────────────
     // 10. OFFICE — Archivos Office (PDF, DOCX, XLSX, PPTX)
@@ -235,6 +236,9 @@ export const SEED_DATA: SeedData = {
     { id: "kimi-k2.6", providerId: "kimi", name: "Kimi K2.6", modelType: "llm", contextWindow: 262144, capabilities: JSON.stringify(["chat", "vision", "json_mode", "function_calling", "streaming", "code"]), inputPer1M: 0.6, outputPer1M: 3.41 },
 
     // ── OpenRouter (fuente: GET https://openrouter.ai/api/v1/models) ──
+    // Jev: modelo de decisiones (API Decisions, nunca chat). `modelType:
+    // "decision"` lo deja fuera de getDefaultLLM y de get_available_models.
+    { id: "typesafe/jev-1.13", providerId: "openrouter", name: "Jev 1.13 (Decisions)", modelType: "decision", contextWindow: 32000, capabilities: JSON.stringify(["choice", "noul", "score"]), inputPer1M: 0.042, outputPer1M: 0 },
     // Solo modelos vivos con `tools` en supported_parameters y publicados desde
     // 2025-07. contextWindow = context_length reportado por el propio catálogo,
     // y los precios también salen de ahí — son los de la ruta de OpenRouter, no

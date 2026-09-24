@@ -18,6 +18,7 @@ import { col } from "../storage/hive.ts";
 import type { SwarmDoc, SwarmMemberSpec, AgentDoc } from "../storage/collections.ts";
 import { runRoleSwarm, type RoleSwarmResult, type SwarmMessage } from "../swarm/RoleSwarm.ts";
 import type { ProviderCredentials } from "../agent/llm-client.ts";
+import type { JevOption } from "../agent/jev-decisions.ts";
 import { slugify } from "./agents.ts";
 import { logger } from "../utils/logger.ts";
 import { enableCatalogAgents, planActivationFor, CATALOG_AGENT_IDS, type ActivationGap } from "./setup.ts";
@@ -268,6 +269,8 @@ export interface RunSwarmOptions {
   channel?: string;
   /** Credenciales del inquilino, propagadas a cada agente. */
   credentials?: ProviderCredentials;
+  /** Jev del inquilino, propagado a cada agente igual que `credentials`. */
+  jev?: JevOption;
   signal?: AbortSignal;
   /** Se llama en cada paso; acá persiste el consumidor si quiere. */
   onMessage?: (message: SwarmMessage) => void | Promise<void>;
@@ -301,6 +304,7 @@ export async function runSwarm(
     orchestratorAgentId: swarm.orchestratorAgentId ?? undefined,
     maxDelegations: swarm.maxDelegations ?? undefined,
     credentials: opts?.credentials,
+    jev: opts?.jev,
     signal: opts?.signal,
     onMessage: opts?.onMessage,
   });

@@ -52,6 +52,16 @@ const SOLO_TIPOS = new Set(["./agent/providers"]);
     expect(Object.keys(mod).length).toBeGreaterThan(0);
   });
 
+  test("./agent expone el plano de decisión Jev", async () => {
+    const agent = await import(specifierFor("./agent"));
+    for (const name of [
+      "askJev", "getJevKey", "getJevStatus", "emitJevDecision", "resetJevStatus", "JEV_MODEL",
+      "planJevContext", "planJevIteration", "jevWantsParallel", "describeSwarmCapabilities", "renderSpecialistLine",
+    ]) {
+      expect(agent).toHaveProperty(name);
+    }
+  });
+
   test("cada subpath apunta a un archivo que existe", async () => {
     const missing: string[] = [];
     for (const [subpath, target] of Object.entries(pkg.exports)) {

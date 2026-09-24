@@ -51,7 +51,10 @@ async function _get(name: string): Promise<string | null> {
 
   // Durable store first — it is the one every write goes to.
   const stored = await _readCollectionSecret(name)
-  if (stored) return stored
+  if (stored) {
+    _mem.set(name, stored)
+    return stored
+  }
 
   // Legacy/desktop installs may only have the value in the OS keychain.
   const fromKeychain = await _keychainGet(name)
@@ -84,12 +87,8 @@ async function _readCollectionSecret(name: string): Promise<string | null> {
     const secrets = await col<SecretDoc>("secrets")
     const entry = await secrets.get(name)
     if (!entry) return null
-    const plain = decryptSecret(entry.doc.ciphertext, entry.doc.iv)
-    if (plain) {
-      // Cache in memory for subsequent lookups in this process
-      _mem.set(name, plain)
-    }
-    return plain || null
+    // `_get` caches it; `loadDurableProviderApiKey` must not.
+    return decryptSecret(entry.doc.ciphertext, entry.doc.iv) || null
   } catch {
     return null
   }
@@ -193,6 +192,15 @@ export async function storeProviderApiKey(id: string, apiKey: string): Promise<b
 
 export async function loadProviderApiKey(id: string): Promise<string> {
   return (await _get(`provider:${id}:api_key`)) ?? ""
+}
+
+/**
+ * The provider key from the durable `secrets` collection only. That collection
+ * is partitioned by tenant; the in-memory cache and the OS keychain are not, so
+ * a multi-tenant caller that must never see another tenant's key reads here.
+ */
+export async function loadDurableProviderApiKey(id: string): Promise<string> {
+  return (await _readCollectionSecret(`provider:${id}:api_key`)) ?? ""
 }
 
 export async function storeProviderHeaders(id: string, headers: Record<string, unknown>): Promise<boolean> {

@@ -49,6 +49,7 @@ const KIND_PREFIX: Record<NarrationEventDoc["kind"], string> = {
   verified: "✅",
   failed: "❌",
   group_ready: "📝",
+  decision: "🔮",
 };
 
 const DETAIL_MAX_CHARS = 200;
@@ -86,6 +87,8 @@ export async function resolveNarrationMode(channelType: string): Promise<Narrati
 
 export function shouldDeliverToChannel(event: NarrationEventDoc, mode: NarrationMode): boolean {
   if (mode === "off") return false;
+  // Internal bookkeeping for activity views, not something a customer reads.
+  if (event.kind === "decision") return false;
   if (MILESTONE_KINDS.has(event.kind)) return true;
   if (mode !== "all") return false;
   // Even in `all`, a successful tool_result only restates the tool_call that

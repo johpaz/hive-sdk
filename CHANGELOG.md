@@ -1,6 +1,57 @@
 # Changelog
 
-## Sin publicar
+## 0.5.0
+
+### Jev — plano de decisión (OpenRouter Decisions)
+
+Portado de hive 1.1.0. Jev decide por turno qué historial, herramientas,
+skills, notas y reglas del playbook entran al contexto; entre iteraciones poda
+resultados viejos de herramientas y sugiere la siguiente acción; decide si un
+lote de herramientas corre en paralelo, y conoce el mapa del enjambre
+(especialistas y estado de cada MCP) para recomendar a quién delegar.
+**Sin clave de OpenRouter, Jev no existe y todo corre igual que antes.**
+
+- **Clave inyectable por llamada**: `jev?: { apiKey, mcpSettingsPath? } | false`
+  en `AgentLoopOptions`, `compileContext`, `IsolatedAgentOptions`,
+  `runRoleSwarm` y `runSwarm`, igual que `credentials`. `false` lo apaga;
+  sin la opción decide la fila `openrouter` del inquilino actual. Con un
+  inquilino activo **nunca** se usa `OPENROUTER_API_KEY` ni la caché de
+  secretos del proceso: la clave de la plataforma no se usa en nombre de un
+  cliente.
+- **Estado por inquilino**: fallos, cooldown y totales se llevan por
+  `currentTenant()`; una clave inválida de un cliente no pone en fallback a
+  los demás.
+- **Evento para el host**: cada decisión llega por `onStep` como
+  `StepEvent` `jev_decision` (`jev`: agente, tipo, resumen, tokens ahorrados,
+  latencia, costo, especialista recomendado, MCP apagados). También se emite
+  `canvas:jev_decision` / `canvas:jev_status` para hosts tipo hive.
+- **Uso y costo**: `recordJevDecision` y los campos `jev*` de
+  `UsageRollupDoc`; `getUsageStats()` devuelve `jev` con el total y el
+  desglose por agente. El ahorro se estima (caracteres/4) y se cotiza con el
+  modelo del agente asesorado.
+- **Catálogo**: modelo `openrouter/typesafe/jev-1.13` con `modelType:
+  "decision"`, excluido de `get_available_models` (y de `getDefaultLLM`, que
+  sólo toma modelos `llm`).
+- Herramienta nueva `conversation_read`: recupera mensajes o notas que Jev
+  dejó fuera del contexto, siempre dentro del hilo actual.
+- `executeToolBatch` acepta `parallelToolCalls` por lote.
+- `NarrationEventDoc.kind` suma `"decision"`: un host puede anotar las
+  decisiones de Jev en `narrationEvents` para sus vistas de actividad.
+  `shouldDeliverToChannel` nunca lo entrega a un canal.
+- `loadDurableProviderApiKey(id)`: lee la clave sólo de la colección
+  `secrets` (particionada por inquilino), sin pasar por la caché de proceso ni
+  el llavero del SO.
+
+**Privacidad.** Con Jev activo se envían a la API de decisiones de OpenRouter
+(`https://openrouter.ai/api/alpha/decisions`), con la clave del workspace:
+el objetivo del turno (hasta 3 500 caracteres), extractos de hasta 450
+caracteres de mensajes previos del hilo, nombre y descripción de herramientas
+y skills candidatas, notas del scratchpad y reglas del playbook (hasta 350
+caracteres cada una), extractos de resultados de herramientas (hasta 650
+caracteres), argumentos de llamadas en lote (hasta 700) y el mapa del enjambre
+(ids, nombres y descripciones de especialistas, nombres y estado de los MCP).
+No se envían ids de MCP con prefijo de inquilino, credenciales ni adjuntos
+binarios. Un host que no quiera enviar nada pasa `jev: false`.
 
 ### Plataforma y seguridad
 

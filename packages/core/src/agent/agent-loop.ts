@@ -23,9 +23,12 @@ import { callLLM, resolveProviderConfig, getDefaultLLM, type LLMMessage, type Pr
 import { addMessage } from "./conversation-store.ts"
 import { saveTrace, recordLLMUsage } from "./tracer.ts"
 import { maybeCompact, clearOldToolResults } from "./compaction.ts"
-import { emitCanvas } from "../canvas/emitter.ts"
+import { emitCanvas, type CanvasJevDecision } from "../canvas/emitter.ts"
 import type { MCPClientManager } from "../mcp/index.ts"
 import { compileContext } from "./context-compiler.ts"
+import { MINIMAL_TOOLS } from "./minimal-loadout.ts"
+import { jevWantsParallel, planJevIteration } from "./jev-planner.ts"
+import { emitJevDecision, type JevOption } from "./jev-decisions.ts"
 import { formatToolResult } from "../utils/toon.ts"
 import { redactBinaryStrings } from "../utils/redact-binary.ts"
 import { resolveUserId, resolveAgentId } from "../storage/onboarding.ts"
@@ -51,6 +54,10 @@ import { publishNarration } from "../events/narration.ts"
 import { getNarration } from "../events/tool-narration.ts"
 
 const log = logger.child("agent-loop")
+
+const JEV_ACTION_LABELS: Record<string, string> = {
+  continue: "Continuar", delegate: "Delegar", discover: "Descubrir", finish: "Cerrar",
+}
 
 // Per-operation budget for a single LLM call — NOT an aggregate deadline for the
 // whole turn. Each call gets its own fresh window; a slow-but-healthy multi-step
@@ -226,6 +233,12 @@ export interface AgentLoopOptions {
    * dos inquilinos concurrentes en el mismo proceso compartían credencial.
    */
   credentials?: ProviderCredentials
+  /**
+   * Jev (OpenRouter Decisions) for this run. `{ apiKey }` uses that key,
+   * `false` turns it off, undefined reads the current tenant's `openrouter`
+   * provider row. Travels with the run like `credentials`.
+   */
+  jev?: JevOption
   /** Whether to resume from a previously saved checkpoint */
   resume?: boolean
   /** Run budget — overrides agent.max_iterations when set */
@@ -258,11 +271,16 @@ export interface AgentLoopOptions {
 export type { StepEvent as AgentStepEvent }
 
 export interface StepEvent {
-  type: "text" | "tool_call" | "tool_result"
+  type: "text" | "tool_call" | "tool_result" | "jev_decision"
   message: string
   toolName?: string
   isError?: boolean
+  /** Present on `jev_decision`: what Jev decided for this run, its cost and the estimated savings. */
+  jev?: JevStepDecision
 }
+
+/** One Jev decision as the host receives it through `onStep`. */
+export type JevStepDecision = CanvasJevDecision
 
 // ─── Stream chunk types (compatible with providers/index.ts) ─────────────────
 
@@ -385,7 +403,24 @@ export async function* runAgent(
     taskContext: opts.taskContext,
     userId: opts.userId,
     causalStreamId,
+    skipJev: !!opts.resume,
+    jev: opts.jev,
   })
+
+  // Every decision goes to the canvas (hosts like hive) and to onStep (hosts
+  // that drive runAgent themselves, like hive-cloud).
+  const publishJev = async (decision: Parameters<typeof emitJevDecision>[0]): Promise<void> => {
+    const event = emitJevDecision(decision)
+    if (!opts.onStep) return
+    try {
+      await opts.onStep({ type: "jev_decision", message: event.summary, jev: event })
+    } catch (err) {
+      log.warn(`[agent-loop] onStep(jev_decision) failed: ${(err as Error).message}`)
+    }
+  }
+  if (ctx.jevDecision) {
+    await publishJev({ ...ctx.jevDecision, agentId: opts.agentId, kind: "context", provider: providerCfg.provider, model: providerCfg.model })
+  }
 
   // Force extra tools into the loadout (tests/evals)
   if (opts.extraTools?.length) {
@@ -417,9 +452,12 @@ export async function* runAgent(
   if (opts.isolated) {
     messages.push({ role: "user", content: opts.userMessage })
   }
+  const jevObjective = typeof opts.userMessage === "string" ? opts.userMessage :
+    opts.userMessage.filter((part) => part.type === "text").map((part) => (part as { text: string }).text).join("\n")
 
   // ── Resume from checkpoint ─────────────────────────────────────────────────
-  let injectedToolNames: string[] = []
+  // Seeded with the compiled loadout so a checkpoint records the tools Jev chose.
+  let injectedToolNames: string[] = ctx.tools.map(t => t.function.name).filter(name => !MINIMAL_TOOLS.has(name))
   let systemPromptSkillSections: string[] = []
   let resumedFromPending = false
   let iterations = 0
@@ -440,6 +478,15 @@ export async function* runAgent(
       if (restored) {
         messages = restored.messages
         injectedToolNames = restored.injectedToolNames ?? []
+        // A resume skips Jev: restore the loadout the checkpoint recorded.
+        const currentTools = new Set(ctx.tools.map(t => t.function.name))
+        for (const name of injectedToolNames) {
+          const tool = ctx.allTools.find(t => t.name === name)
+          if (tool && !currentTools.has(name)) {
+            ctx.tools.push({ type: "function", function: { name: tool.name, description: tool.description, parameters: tool.parameters } })
+            currentTools.add(name)
+          }
+        }
         systemPromptSkillSections = restored.systemPromptSkillSections ?? []
         iterations = restored.iterations ?? 0
         totalInputTokens = restored.totalInputTokens ?? 0
@@ -525,11 +572,27 @@ export async function* runAgent(
       : null
     let streamedThisCall = false
     let response: Awaited<ReturnType<typeof callLLM>>
+    const jevIteration = await planJevIteration({ objective: jevObjective, messages, tools: ctx.tools, jev: opts.jev })
+      .catch((err) => { log.warn(`[agent-loop] Jev iteration fallback: ${(err as Error).message}`); return null })
+    const callMessages = jevIteration?.messages ?? messages
+    const callTools = jevIteration?.tools ?? ctx.tools
+    if (jevIteration) {
+      log.info(`[agent-loop] Jev action=${jevIteration.action} omitted_results=${jevIteration.omittedResults} tools=${callTools.map(t => t.function.name).join(",")}`)
+      // Measured on what the provider actually receives, after the usual truncation.
+      const payloadChars = (msgs: LLMMessage[], tools: typeof ctx.tools) =>
+        JSON.stringify(clearOldToolResults(msgs)).length + JSON.stringify(tools).length
+      await publishJev({
+        agentId: opts.agentId, kind: "iteration", provider: providerCfg.provider, model: providerCfg.model,
+        summary: `${JEV_ACTION_LABELS[jevIteration.action] ?? jevIteration.action} · ${jevIteration.omittedResults} resultado(s) omitido(s) · ${callTools.length}/${ctx.tools.length} herramientas`,
+        savedTokens: Math.round((payloadChars(messages, ctx.tools) - payloadChars(callMessages, callTools)) / 4),
+        latencyMs: jevIteration.decision.latencyMs, costUsd: jevIteration.decision.costUsd,
+      })
+    }
     try {
       response = await withTimeout(() => callLLM({
         ...providerCfg,
-        messages: clearOldToolResults(messages) as LLMMessage[],
-        tools: ctx.tools.length > 0 ? ctx.tools : undefined,
+        messages: clearOldToolResults(callMessages) as LLMMessage[],
+        tools: callTools.length > 0 ? callTools : undefined,
         signal: opts.signal,
         sessionId: opts.threadId,
         onToken: opts.onToken && !delegationGroupAtCall
@@ -689,6 +752,16 @@ export async function* runAgent(
       }
     }
 
+    const jevParallel = await jevWantsParallel(response.tool_calls, opts.jev)
+      .catch((err) => { log.warn(`[agent-loop] Jev parallel fallback: ${(err as Error).message}`); return null })
+    if (jevParallel?.decision) {
+      log.info(`[agent-loop] Jev parallel=${jevParallel.parallel} calls=${response.tool_calls.length}`)
+      await publishJev({
+        agentId: opts.agentId, kind: "parallel", provider: providerCfg.provider, model: providerCfg.model,
+        summary: `${response.tool_calls.length} herramientas ${jevParallel.parallel ? "en paralelo" : "en secuencia"}`,
+        savedTokens: 0, latencyMs: jevParallel.decision.latencyMs, costUsd: jevParallel.decision.costUsd,
+      })
+    }
     const toolResults = await executeToolBatch({
       toolCalls: response.tool_calls,
       allTools: ctx.allTools,
@@ -709,6 +782,7 @@ export async function* runAgent(
       },
       hiveConfig,
       workerPool: hiveConfig.tools?.workerPool,
+      parallelToolCalls: jevParallel?.parallel,
       signal: opts.signal,
     })
 
@@ -1305,6 +1379,8 @@ export interface IsolatedAgentOptions {
    * reabría justo en el camino de delegación.
    */
   credentials?: ProviderCredentials
+  /** Jev for the worker, inherited from the delegating turn like `credentials`. */
+  jev?: JevOption
 }
 
 export async function runAgentIsolatedDetailed(
@@ -1329,6 +1405,7 @@ export async function runAgentIsolatedDetailed(
     channel: opts.channel,
     sessionId: opts.sessionId,
     credentials: opts.credentials,
+    jev: opts.jev,
   })) {
     if (chunk.agent?.messages?.[0]?.content) {
       lastContent = chunk.agent.messages[0].content
