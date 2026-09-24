@@ -96,6 +96,7 @@ export {
   deleteSecret,
   storeProviderApiKey,
   loadProviderApiKey,
+  envSecret,
   storeProviderHeaders,
   loadProviderHeaders,
   deleteProviderSecrets,

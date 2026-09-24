@@ -10,6 +10,7 @@
  * al contexto inicial en 3.x, así que no se usa acá.
  */
 
+import { envSecret } from "../../storage/crypto.ts"
 import { logger } from "../../utils/logger.ts";
 import { ensureArrayItems } from "../llm-providers/interface.ts";
 import type {
@@ -106,7 +107,7 @@ export class GeminiLiveProvider implements RealtimeProvider {
 
   async connect(options: RealtimeSessionOptions): Promise<RealtimeSession> {
     const { GoogleGenAI } = await import("@google/genai");
-    const ai = new GoogleGenAI({ apiKey: options.apiKey });
+    const ai = new GoogleGenAI({ apiKey: options.apiKey || envSecret("GEMINI_API_KEY") || envSecret("GOOGLE_API_KEY") || "" });
     const cb = options.callbacks;
 
     const config: Record<string, unknown> = {

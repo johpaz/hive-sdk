@@ -74,6 +74,26 @@ sigue sólo importa con el log causal encendido (`HIVE_CAUSAL_LOG=true` o
   crudo y el SDK lo califica. Los eventos que entrega traen en `agentId` la
   clave del shard; `formatCausalEvent` la muestra sin el tenant.
 
+## 0.5.1: claves aisladas por inquilino
+
+Sólo cambia algo si corres turnos dentro de `runInTenant` (un host
+multi-inquilino). Sin inquilino todo sigue igual.
+
+- **La caché de secretos y el llavero del SO ya no se comparten.** Antes, en
+  cuanto un inquilino leía o guardaba `provider:<id>:api_key`, los demás del
+  mismo proceso recibían esa clave. Ahora la caché es por inquilino y el
+  llavero no se toca dentro de un inquilino. No hay que cambiar código.
+- **El entorno ya no es respaldo dentro de un inquilino.** Si un turno no
+  trae `credentials` y el inquilino no tiene clave guardada, antes se usaba
+  `<PROVIDER>_API_KEY` del proceso (la cuenta de la plataforma); ahora la
+  llamada falla por falta de clave. Aplica al modelo principal, OCR, voz,
+  `computer_use` y Jev. Qué hacer: pasar la clave en `credentials`, o
+  guardarla con `storeProviderApiKey` dentro del `runInTenant` del cliente. Si
+  quieres que un cliente use la cuenta de la plataforma, pásala tú en
+  `credentials`, a propósito.
+- Para tus propias tools: `envSecret("MI_API_KEY")` en lugar de
+  `process.env.MI_API_KEY`.
+
 ## Compatibilidad y CI
 
 Los workflows fijan Bun 1.4.2, instalan con `--frozen-lockfile`, ejecutan el

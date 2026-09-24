@@ -1,3 +1,4 @@
+import { envSecret } from "../../storage/crypto.ts"
 import { logger } from "../../utils/logger.ts"
 import { normalizeToolName, resolveMaxTokens, ensureArrayItems } from "./interface.ts"
 import type { LLMCallOptions, LLMProvider, LLMResponse, LLMToolCall, ThinkingBlock } from "./interface.ts"
@@ -74,7 +75,7 @@ export class AnthropicProvider implements LLMProvider {
 
   async call(options: LLMCallOptions): Promise<LLMResponse> {
     const Anthropic = await import("@anthropic-ai/sdk")
-    const client = new Anthropic.default({ apiKey: options.apiKey })
+    const client = new Anthropic.default({ apiKey: options.apiKey || envSecret("ANTHROPIC_API_KEY") || "" })
 
     // Anthropic requires tool names to match ^[a-zA-Z0-9_-]{1,128}$
     // Native Hive tools use dots (e.g. cron.create) which violate this.

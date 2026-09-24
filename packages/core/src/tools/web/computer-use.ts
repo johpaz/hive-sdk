@@ -28,7 +28,7 @@
 import type { Tool } from "../types.ts";
 import { logger } from "../../utils/logger.ts";
 import { getBrowserService } from "./browser-service.ts";
-import { loadProviderApiKey } from "../../storage/crypto.ts";
+import { envSecret, loadProviderApiKey } from "../../storage/crypto.ts";
 
 const log = logger.child("computer-use");
 
@@ -417,7 +417,7 @@ export const computerUseTaskTool: Tool = {
     const maxPasos = Math.max(1, Math.min(30, Number(params.max_pasos) || MAX_PASOS));
     const confirmado = params.confirmado === true;
 
-    const apiKey = (await loadProviderApiKey("gemini")) || process.env.GEMINI_API_KEY;
+    const apiKey = (await loadProviderApiKey("gemini")) || envSecret("GEMINI_API_KEY");
     if (!apiKey) {
       return { ok: false, error: "Falta la API key de Gemini (Ajustes → Proveedores)." };
     }

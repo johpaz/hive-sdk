@@ -309,7 +309,7 @@ export async function resolveProviderConfig(
   credentials?: ProviderCredentials
 ): Promise<Pick<LLMCallOptions, "provider" | "model" | "apiKey" | "baseUrl" | "numCtx" | "numGpu" | "contextWindow">> {
   const { col } = await import("../storage/hive.ts")
-  const { loadProviderApiKey } = await import("../storage/crypto.ts")
+  const { envSecret, loadProviderApiKey } = await import("../storage/crypto.ts")
   const providersCol = await col<import("../storage/collections.ts").ProviderDoc>("providers")
   const modelsCol = await col<import("../storage/collections.ts").ModelDoc>("models")
 
@@ -327,7 +327,7 @@ export async function resolveProviderConfig(
     apiKey = await loadProviderApiKey(providerId)
   }
   if (!apiKey) {
-    apiKey = process.env[`${providerId.toUpperCase()}_API_KEY`] || ""
+    apiKey = envSecret(`${providerId.toUpperCase()}_API_KEY`) || ""
   }
 
   return {

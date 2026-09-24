@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.1
+
+### Seguridad — claves aisladas por inquilino
+
+- **Secretos filtrados entre inquilinos por la caché en memoria.** El
+  almacén de secretos cacheaba cada valor descifrado en un `Map` del proceso
+  indexado sólo por nombre (`provider:openai:api_key`), y el llavero del SO
+  también es de toda la máquina. La colección `secrets` sí está particionada,
+  pero la caché la tapaba: después de que un inquilino leyera o guardara su
+  clave, `loadProviderApiKey` le devolvía esa misma clave a cualquier otro
+  inquilino del proceso, y `resolveProviderConfig` la usaba para cobrarle a
+  la cuenta equivocada cuando la llamada no traía `credentials`. Ahora la
+  caché se indexa por inquilino y, con un inquilino activo, el llavero del SO
+  no se lee, no se escribe ni se borra. Sin inquilino (escritorio) todo sigue
+  igual.
+- **La clave del entorno ya no se usa en nombre de un inquilino.** Con un
+  inquilino activo y sin `credentials` ni clave guardada, `resolveProviderConfig`
+  caía en `<PROVEEDOR>_API_KEY` del proceso, que es la cuenta de la plataforma;
+  lo mismo OCR (`vision-service`), voz (STT/TTS), `computer_use` y Jev. Ahora
+  todos pasan por `envSecret(nombre)`, que dentro de un inquilino devuelve
+  `undefined`. Los adaptadores de Anthropic, Gemini y Gemini Live pasan siempre
+  una cadena al SDK del proveedor, porque con `undefined` esos SDK leían la
+  variable de entorno por su cuenta. **Cambio de comportamiento:** un host
+  multi-inquilino que dependía de ese respaldo tiene que pasar la clave en
+  `credentials` o guardarla en los secretos del inquilino; sin eso la llamada
+  falla por falta de clave en vez de cobrarse a la plataforma. Sin inquilino
+  (escritorio) el entorno sigue siendo el último respaldo.
+- Nuevo `envSecret(nombre)` en `@johpaz/hive-sdk/storage`: la variable de
+  entorno sólo fuera de un inquilino. Úsalo en tus propias tools en lugar de
+  `process.env.X_API_KEY`.
+- Quitado `loadDurableProviderApiKey` (interno, agregado en 0.5.0 y nunca
+  exportado por un barrel): `loadProviderApiKey` ya es seguro por inquilino.
+
 ## 0.5.0
 
 ### Jev — plano de decisión (OpenRouter Decisions)

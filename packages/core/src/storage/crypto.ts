@@ -4,6 +4,7 @@ import * as path from "node:path"
 import { getHiveDir } from "../config/loader.ts"
 import { logger } from "../utils/logger.ts"
 import { col } from "./hive.ts"
+import { currentTenant } from "./tenant.ts"
 
 const log = logger.child("crypto")
 const SERVICE = "hive"
@@ -25,8 +26,28 @@ interface SecretDoc {
 // written *only* there does not survive a server restart. That is exactly
 // what was wiping every provider API key, channel token and MCP header on
 // restart in production.
+//
+// Multi-tenant: the `secrets` collection is partitioned by tenant through
+// `col()`, but this process's memory and the OS keychain are not. So the
+// in-memory cache is keyed by tenant as well, and with a tenant in scope the
+// keychain is never read or written — a machine-wide entry named
+// `provider:openai:api_key` belongs to no tenant in particular, and serving it
+// (or overwriting it) on a tenant's behalf would hand one customer another's
+// key.
 
+/** Decrypted values, keyed by {@link _cacheKey}: never shared across tenants. */
 const _mem = new Map<string, string>()
+
+/** `name` for the desktop (no tenant); `<tenant>\0name` inside a tenant. */
+function _cacheKey(name: string): string {
+  const tenant = currentTenant()
+  return tenant ? `${tenant}\0${name}` : name
+}
+
+/** The OS keychain only serves the tenant-less (desktop) scope. */
+function _keychainInScope(): boolean {
+  return currentTenant() === null
+}
 let _keychainOk: boolean | null = null // null = untested
 
 let _keychainApi: unknown = undefined
@@ -46,19 +67,21 @@ function _getKeychainApi(): any {
 }
 
 async function _get(name: string): Promise<string | null> {
-  const cached = _mem.get(name)
+  const cacheKey = _cacheKey(name)
+  const cached = _mem.get(cacheKey)
   if (cached !== undefined) return cached
 
   // Durable store first — it is the one every write goes to.
   const stored = await _readCollectionSecret(name)
   if (stored) {
-    _mem.set(name, stored)
+    _mem.set(cacheKey, stored)
     return stored
   }
 
   // Legacy/desktop installs may only have the value in the OS keychain.
+  if (!_keychainInScope()) return null
   const fromKeychain = await _keychainGet(name)
-  if (fromKeychain) _mem.set(name, fromKeychain)
+  if (fromKeychain) _mem.set(cacheKey, fromKeychain)
   return fromKeychain
 }
 
@@ -69,9 +92,9 @@ async function _get(name: string): Promise<string | null> {
  * silently accepting a secret that dies with the process.
  */
 async function _set(name: string, value: string): Promise<boolean> {
-  _mem.set(name, value)
+  _mem.set(_cacheKey(name), value)
   const durable = await persistSecretToCollection(name, value)
-  const mirrored = await _keychainSet(name, value)
+  const mirrored = _keychainInScope() ? await _keychainSet(name, value) : false
   if (!durable && !mirrored) {
     log.error(`[secrets] ${name} could not be persisted — it will be lost on restart`)
   }
@@ -87,7 +110,6 @@ async function _readCollectionSecret(name: string): Promise<string | null> {
     const secrets = await col<SecretDoc>("secrets")
     const entry = await secrets.get(name)
     if (!entry) return null
-    // `_get` caches it; `loadDurableProviderApiKey` must not.
     return decryptSecret(entry.doc.ciphertext, entry.doc.iv) || null
   } catch {
     return null
@@ -134,11 +156,13 @@ async function _keychainSet(name: string, value: string): Promise<boolean> {
 }
 
 async function _del(name: string): Promise<void> {
-  _mem.delete(name)
-  try {
-    await (Bun as any).secrets.delete({ service: SERVICE, name })
-  } catch {
-    // ignore — might not exist or keychain unavailable
+  _mem.delete(_cacheKey(name))
+  if (_keychainInScope()) {
+    try {
+      await (Bun as any).secrets.delete({ service: SERVICE, name })
+    } catch {
+      // ignore — might not exist or keychain unavailable
+    }
   }
   try {
     const secrets = await col<SecretDoc>("secrets")
@@ -195,12 +219,14 @@ export async function loadProviderApiKey(id: string): Promise<string> {
 }
 
 /**
- * The provider key from the durable `secrets` collection only. That collection
- * is partitioned by tenant; the in-memory cache and the OS keychain are not, so
- * a multi-tenant caller that must never see another tenant's key reads here.
+ * A credential from the process environment (`OPENAI_API_KEY`, …) — only
+ * outside a tenant. The environment is the host's: inside a tenant it belongs
+ * to the platform, not the customer, and using it would bill the platform's
+ * account for a customer's call (or let one customer run on another's key).
+ * A tenant's credentials come from its own secrets or from `credentials`.
  */
-export async function loadDurableProviderApiKey(id: string): Promise<string> {
-  return (await _readCollectionSecret(`provider:${id}:api_key`)) ?? ""
+export function envSecret(name: string): string | undefined {
+  return currentTenant() ? undefined : process.env[name] || undefined
 }
 
 export async function storeProviderHeaders(id: string, headers: Record<string, unknown>): Promise<boolean> {

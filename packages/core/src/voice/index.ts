@@ -1,7 +1,7 @@
 import { resolvePort } from "../utils/port.ts";
 import { col } from "../storage/hive.ts";
 import type { ChannelDoc, ModelDoc } from "../storage/collections.ts";
-import { loadProviderApiKey } from "../storage/crypto.ts";
+import { envSecret, loadProviderApiKey } from "../storage/crypto.ts";
 import { logger } from "../utils/logger.ts";
 
 export interface VoiceConfig {
@@ -160,7 +160,7 @@ class VoiceService {
   }
 
   private async transcribeWithGroq(audio: AudioInput, modelId: string): Promise<string> {
-    const key = await this.getProviderApiKey("groq") || process.env.GROQ_API_KEY;
+    const key = await this.getProviderApiKey("groq") || envSecret("GROQ_API_KEY");
     if (!key) {
       throw new Error("GROQ_API_KEY not configured. Configúrala en Proveedores o en las variables de entorno.");
     }
@@ -212,7 +212,7 @@ class VoiceService {
   }
 
   private async transcribeWithOpenAIWhisper(audio: AudioInput): Promise<string> {
-    const key = await this.getProviderApiKey("openai") || process.env.OPENAI_API_KEY;
+    const key = await this.getProviderApiKey("openai") || envSecret("OPENAI_API_KEY");
     if (!key) {
       throw new Error("OPENAI_API_KEY not configured. Configúrala en Proveedores o en las variables de entorno.");
     }
@@ -302,7 +302,7 @@ class VoiceService {
 
   private async speakWithElevenLabs(text: string, modelId: string, voiceId?: string): Promise<AudioOutput> {
     const apiKey = await this.getProviderApiKey("elevenlabs");
-    const key = apiKey || process.env.ELEVENLABS_API_KEY;
+    const key = apiKey || envSecret("ELEVENLABS_API_KEY");
     
     if (!key) {
       throw new Error("ELEVENLABS_API_KEY not configured");
@@ -341,7 +341,7 @@ class VoiceService {
 
   private async speakWithOpenAI(text: string, modelId: string = "gpt-4o-mini-tts", voiceId?: string): Promise<AudioOutput> {
     const apiKey = await this.getProviderApiKey("openai-tts");
-    const key = apiKey || process.env.OPENAI_API_KEY;
+    const key = apiKey || envSecret("OPENAI_API_KEY");
 
     if (!key) {
       throw new Error("OPENAI_API_KEY not configured");
@@ -377,7 +377,7 @@ class VoiceService {
   }
 
   private async speakWithGemini(text: string, modelId: string, voiceId?: string): Promise<AudioOutput> {
-    const key = process.env.GEMINI_API_KEY;
+    const key = envSecret("GEMINI_API_KEY");
 
     if (!key) {
       throw new Error("GEMINI_API_KEY not configured");
@@ -431,7 +431,7 @@ class VoiceService {
   }
 
   private async speakWithQwen(text: string, modelId: string, voiceId?: string): Promise<AudioOutput> {
-    const key = process.env.DASHSCOPE_API_KEY;
+    const key = envSecret("DASHSCOPE_API_KEY");
 
     if (!key) {
       throw new Error("DASHSCOPE_API_KEY not configured");
@@ -485,11 +485,11 @@ class VoiceService {
     ]);
 
     return {
-      groq:       groq       || !!(process.env.GROQ_API_KEY),
-      elevenlabs: elevenlabs || !!(process.env.ELEVENLABS_API_KEY),
-      openai:     openai     || !!(process.env.OPENAI_API_KEY),
-      gemini:     gemini     || !!(process.env.GEMINI_API_KEY),
-      qwen:       qwen       || !!(process.env.DASHSCOPE_API_KEY),
+      groq:       groq       || !!(envSecret("GROQ_API_KEY")),
+      elevenlabs: elevenlabs || !!(envSecret("ELEVENLABS_API_KEY")),
+      openai:     openai     || !!(envSecret("OPENAI_API_KEY")),
+      gemini:     gemini     || !!(envSecret("GEMINI_API_KEY")),
+      qwen:       qwen       || !!(envSecret("DASHSCOPE_API_KEY")),
     };
   }
 
@@ -561,7 +561,7 @@ class VoiceService {
 
   async getElevenLabsVoices(): Promise<Array<{ id: string; name: string; category: string }>> {
     const apiKey = await this.getProviderApiKey("elevenlabs");
-    const key = apiKey || process.env.ELEVENLABS_API_KEY;
+    const key = apiKey || envSecret("ELEVENLABS_API_KEY");
     
     if (!key) {
       throw new Error("ELEVENLABS_API_KEY not configured");

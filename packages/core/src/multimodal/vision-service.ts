@@ -1,6 +1,6 @@
 import { col } from "../storage/hive.ts"
 import type { ChannelDoc, ModelDoc, ProviderDoc } from "../storage/collections.ts"
-import { loadProviderApiKey } from "../storage/crypto.ts"
+import { envSecret, loadProviderApiKey } from "../storage/crypto.ts"
 import { logger } from "../utils/logger.ts"
 import type { ImageInput, DocumentInput, VisionConfig } from "./types.ts"
 import type { ContentPart } from "./types.ts"
@@ -177,7 +177,7 @@ class MultimodalService {
   }
 
   private async ocrWithOpenAI(image: ImageInput): Promise<string> {
-    const key = await this.getProviderApiKey("openai") || process.env.OPENAI_API_KEY
+    const key = await this.getProviderApiKey("openai") || envSecret("OPENAI_API_KEY")
     if (!key) throw new Error("OPENAI_API_KEY not configured for OCR")
 
     const imageUrl = await this.resolveImageUrl(image)
@@ -208,7 +208,7 @@ class MultimodalService {
   }
 
   private async ocrWithGemini(image: ImageInput): Promise<string> {
-    const key = await this.getProviderApiKey("gemini") || process.env.GEMINI_API_KEY
+    const key = await this.getProviderApiKey("gemini") || envSecret("GEMINI_API_KEY")
     if (!key) throw new Error("GEMINI_API_KEY not configured for OCR")
 
     let imagePart: any
@@ -243,7 +243,7 @@ class MultimodalService {
   }
 
   private async ocrWithAnthropic(image: ImageInput): Promise<string> {
-    const key = await this.getProviderApiKey("anthropic") || process.env.ANTHROPIC_API_KEY
+    const key = await this.getProviderApiKey("anthropic") || envSecret("ANTHROPIC_API_KEY")
     if (!key) throw new Error("ANTHROPIC_API_KEY not configured for OCR")
 
     const imageUrl = await this.resolveImageUrl(image)
@@ -299,9 +299,9 @@ class MultimodalService {
     ])
 
     return {
-      openai: openai || !!(process.env.OPENAI_API_KEY),
-      gemini: gemini || !!(process.env.GEMINI_API_KEY),
-      anthropic: anthropic || !!(process.env.ANTHROPIC_API_KEY),
+      openai: openai || !!(envSecret("OPENAI_API_KEY")),
+      gemini: gemini || !!(envSecret("GEMINI_API_KEY")),
+      anthropic: anthropic || !!(envSecret("ANTHROPIC_API_KEY")),
     }
   }
 

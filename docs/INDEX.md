@@ -12,7 +12,7 @@
 | [API-RESILIENCE.md](./API-RESILIENCE.md) | Reintentos con backoff y circuit breakers |
 | [API-SESSIONS.md](./API-SESSIONS.md) | Sesiones por canal, historial, reanudación tras un corte |
 | [API-SERVICES.md](./API-SERVICES.md) | **La superficie para una UI** — CRUD de agentes, enjambres, skills, modelos, MCP, cron |
-| [API-AGENTS.md](./API-AGENTS.md) | createAgent, AgentLoop, Tool/Skill Selector, LLM Providers |
+| [API-AGENTS.md](./API-AGENTS.md) | createAgent, AgentLoop, Tool/Skill Selector, LLM Providers, multi-inquilino y Jev |
 | [API-DAG-SCHEDULER.md](./API-DAG-SCHEDULER.md) | DAGScheduler, TaskGraph, Estrategias, Presets |
 | [API-CRON.md](./API-CRON.md) | Tareas programadas: expresiones, zona horaria, misfires, motor sin dependencias |
 | [API-WORKERS-EVENTS.md](./API-WORKERS-EVENTS.md) | **Bun Workers**, createWorker, WorkerPool, AgentBus, EventBus, Canvas |
@@ -180,6 +180,10 @@ OPENAI_API_KEY=sk-...         # OpenAI
 ANTHROPIC_API_KEY=sk-ant-...  # Anthropic
 LOG_LEVEL=info                # debug | info | warn | error
 ```
+
+Las `*_API_KEY` del entorno sólo se usan sin inquilino; dentro de
+`runInTenant` la clave llega en `credentials` o desde los secretos del
+inquilino (ver [UPGRADING.md](./UPGRADING.md#051-claves-aisladas-por-inquilino)).
 
 ---
 

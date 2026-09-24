@@ -7,6 +7,8 @@
 3. [Tool Selector](#tool-selector)
 4. [Skill Selector](#skill-selector)
 5. [LLM Providers](#llm-providers)
+6. [Multi-inquilino: credenciales y Jev](#multi-inquilino-credenciales-y-jev)
+7. [Jev: plano de decisión](#jev-plano-de-decisión)
 
 ---
 
@@ -239,6 +241,74 @@ const result = await runAgentIsolated({
   threadId: "dag-thread",
 });
 ```
+
+### Multi-inquilino: credenciales y Jev
+
+Un host que sirve a varios clientes desde un mismo proceso corre cada turno
+dentro de `runInTenant(tenantKey, …)` y pasa las claves **por llamada**:
+
+```typescript
+import { runAgent } from "@johpaz/hive-sdk";
+import { runInTenant } from "@johpaz/hive-sdk/storage";
+
+await runInTenant(tenantKey, async () => {
+  for await (const chunk of runAgent({
+    agentId, threadId, userMessage,
+    credentials: { apiKey: claveDelModelo, baseUrl },     // gana y corta ahí
+    jev: claveOpenRouter ? { apiKey: claveOpenRouter } : false,
+    onStep: async (paso) => { /* text · tool_call · tool_result · jev_decision */ },
+  })) { /* … */ }
+});
+```
+
+Reglas con un inquilino activo (desde 0.5.1):
+
+- `credentials.apiKey` gana. Sin ella, la clave sale de los secretos **de ese
+  inquilino** (`storeProviderApiKey` dentro de su `runInTenant`).
+- Nunca se usa `<PROVIDER>_API_KEY` del entorno ni el llavero del SO: son de la
+  máquina, no del cliente. Si no hay clave, la llamada falla en vez de cobrarse
+  a la plataforma. Para tus propias tools usa `envSecret(nombre)`
+  (`@johpaz/hive-sdk/storage`), que aplica la misma regla.
+- `credentials` y `jev` se propagan a `runAgentIsolated`, `runRoleSwarm` y
+  `runSwarm`.
+
+### Jev: plano de decisión
+
+Jev hace preguntas acotadas a la API Decisions de OpenRouter
+(`typesafe/jev-1.13`) y usa las respuestas para recortar lo que recibe el
+modelo principal. **Es opcional**: sin clave no existe, no se hace ninguna
+llamada y el turno corre exactamente igual.
+
+| Momento | Qué decide |
+|---|---|
+| Al compilar el contexto | Qué mensajes previos, tools, skills, notas del scratchpad y reglas del playbook entran; a qué especialista conviene delegar, y si depende de un MCP apagado. Los últimos 4 mensajes siempre quedan. |
+| Entre iteraciones | Qué resultados viejos de tools se omiten y la siguiente acción (continuar, delegar, descubrir, cerrar). Sólo si hay ≥ 4 000 caracteres podables. |
+| Antes de ejecutar tools | Si un lote de lecturas independientes, o de delegaciones a workers distintos, corre en paralelo. |
+
+Lo omitido se puede recuperar: el prompt lista los ids y el coordinador tiene
+`conversation_read`.
+
+**Activación**, por orden:
+
+1. `jev: { apiKey, mcpSettingsPath? }` en la llamada. `mcpSettingsPath` es el
+   texto con el que el coordinador le dice al usuario dónde encender un MCP
+   (por defecto «Ajustes → Entorno → MCP Servers»).
+2. `jev: false` lo apaga.
+3. Sin la opción: el provider `openrouter` habilitado y activo, con su clave
+   guardada; sin inquilino, también `OPENROUTER_API_KEY`.
+
+**Qué ve el host.** Cada decisión llega por `onStep` como
+`{ type: "jev_decision", message, jev }`, con agente, tipo (`context`,
+`iteration`, `parallel`), resumen, tokens ahorrados estimados, latencia, costo,
+especialista recomendado y MCP apagados. También se emite
+`canvas:jev_decision`. `getUsageStats().jev` suma decisiones, costo y ahorro
+(total y por agente). Fallos y cooldown se llevan por inquilino.
+
+**Privacidad.** Se envían a OpenRouter, con la clave de la llamada, extractos
+acotados: el objetivo del turno, fragmentos de mensajes previos, nombres y
+descripciones de tools y skills, notas y reglas, fragmentos de resultados de
+tools y el mapa del enjambre (nombres, no ids con prefijo de inquilino). Nunca
+credenciales ni adjuntos. El detalle está en el [CHANGELOG](../CHANGELOG.md).
 
 ---
 

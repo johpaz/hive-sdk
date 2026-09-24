@@ -1,7 +1,7 @@
 /** Optional decision plane. Jev is never used through the chat completions API. */
 import { col } from "../storage/hive.ts"
 import type { ProviderDoc } from "../storage/collections.ts"
-import { loadDurableProviderApiKey, loadProviderApiKey } from "../storage/crypto.ts"
+import { envSecret, loadProviderApiKey } from "../storage/crypto.ts"
 import { recordJevDecision, recordUsage } from "../storage/usage.ts"
 import { catalogModelKey } from "../storage/model-id.ts"
 import { currentTenant } from "../storage/tenant.ts"
@@ -71,17 +71,15 @@ export interface JevResult {
 /**
  * The OpenRouter key Jev would use, or null when Jev is off.
  *
- * With a tenant in scope the key comes only from that tenant's `secrets`
- * partition — never from `OPENROUTER_API_KEY`, which is the platform's, nor
- * from the process-wide secret cache, which is not partitioned.
+ * With a tenant in scope the key comes only from that tenant's secrets —
+ * never from `OPENROUTER_API_KEY`, which is the platform's.
  */
 export async function getJevKey(option?: JevOption): Promise<string | null> {
   if (option === false) return null
   if (option) return option.apiKey || null
   const provider = await (await col<ProviderDoc>("providers")).get("openrouter")
   if (!provider?.doc.enabled || !provider.doc.active) return null
-  if (currentTenant()) return (await loadDurableProviderApiKey("openrouter")) || null
-  return (await loadProviderApiKey("openrouter")) || process.env.OPENROUTER_API_KEY || null
+  return (await loadProviderApiKey("openrouter")) || envSecret("OPENROUTER_API_KEY") || null
 }
 
 export interface JevStatus {

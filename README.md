@@ -25,6 +25,8 @@ bun add @johpaz/hive-sdk
 - **Runtime**: ejecución paralela de tools vía Bun Workers.
 - **Gateway**: servidor HTTP/WebSocket para exponer agentes como API.
 - **Memoria y estado**: HiveDB (colecciones + índice BM25), scratchpad, context compiler con compactación.
+- **Jev (opcional)**: plano de decisión sobre la API Decisions de OpenRouter. Por turno elige qué historial, tools, skills, notas y reglas entran al contexto, poda resultados viejos entre iteraciones y decide si un lote de tools corre en paralelo. Sin clave de OpenRouter no existe y todo corre igual. Ver [API-AGENTS.md](./docs/API-AGENTS.md#jev-plano-de-decisión).
+- **Multi-inquilino**: varios enjambres en una sola HiveDB con `runInTenant`; credenciales y clave de Jev por llamada (`credentials`, `jev`), sin que la clave de un inquilino ni la de la plataforma se usen en nombre de otro.
 - **Servicios**: CRUD tipado de agentes, enjambres, skills, modelos, MCP y cron para montarle **la interfaz que quieras** — móvil, web o escritorio. Ver [API-SERVICES.md](./docs/API-SERVICES.md).
 - **Sesiones**: un hilo por canal y por contacto, con historial, resumen y reanudación tras un corte.
 - **Imágenes**: redimensionar y convertir con `Bun.Image`, sin dependencias nativas. Las imágenes entrantes se normalizan antes de llegar al modelo — una foto de cámara pasa de 217 KB a 4 KB.
@@ -197,7 +199,10 @@ capturar. El SDK lo resuelve con `resolvePort`: avisa y sigue con el default.
 
 La API key de cada provider se guarda cifrada en la base. Como alternativa, el
 SDK cae a `<PROVIDER>_API_KEY` del entorno, en mayúsculas y con el id del
-provider tal cual:
+provider tal cual. **Sólo sin inquilino** (app de escritorio, un proceso por
+instalación): dentro de `runInTenant` el entorno es de la plataforma, no del
+cliente, y no se usa nunca — la clave llega en `credentials` o desde los
+secretos del inquilino. Ver [UPGRADING.md](./docs/UPGRADING.md#051-claves-aisladas-por-inquilino).
 
 ```bash
 OPENAI_API_KEY=sk-...
@@ -205,7 +210,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 GOOGLE_API_KEY=...            # provider "gemini"
 MODELSCOPE_API_KEY=ms-...
 NVIDIA_API_KEY=nvapi-...
-OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_API_KEY=sk-or-...  # también activa Jev (con el provider openrouter habilitado)
 ```
 
 ## Tests
@@ -260,7 +265,7 @@ npm view @johpaz/hive-sdk dist-tags   # verificar después del release
 
 | Documento | Descripción |
 |-----------|-------------|
-| [API-AGENTS.md](docs/API-AGENTS.md) | createAgent, AgentLoop, Tool/Skill Selector, los 16 LLM Providers |
+| [API-AGENTS.md](docs/API-AGENTS.md) | createAgent, AgentLoop, Tool/Skill Selector, los 16 LLM Providers, multi-inquilino y Jev |
 | [API-CONTEXT-COMPILER.md](docs/API-CONTEXT-COMPILER.md) | Context Compiler, historial, Scratchpad, EthicsGuard, ACE |
 | [API-TOOLS-SKILLS-CHANNELS.md](docs/API-TOOLS-SKILLS-CHANNELS.md) | Tools, Skills, MCP, Gateway, Channels, Tool Runtime, Storage |
 | [API-DAG-SCHEDULER.md](docs/API-DAG-SCHEDULER.md) | DAGScheduler, TaskGraph, TaskNode, estrategias, presets |
@@ -271,4 +276,4 @@ npm view @johpaz/hive-sdk dist-tags   # verificar después del release
 
 ---
 
-*Hive SDK v0.5.0 — MIT*
+*Hive SDK v0.5.1 — MIT*

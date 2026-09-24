@@ -1,3 +1,4 @@
+import { envSecret } from "../../storage/crypto.ts"
 import { logger } from "../../utils/logger.ts"
 import { sanitizeMessages, resolveMaxTokens, ensureArrayItems } from "./interface.ts"
 import type { LLMCallOptions, LLMProvider, LLMResponse, LLMToolCall } from "./interface.ts"
@@ -100,7 +101,8 @@ export class GeminiProvider implements LLMProvider {
   async call(options: LLMCallOptions): Promise<LLMResponse> {
     const { GoogleGenAI } = await import("@google/genai")
 
-    const clientOpts: any = { apiKey: options.apiKey }
+    // A string always: undefined makes @google/genai read GEMINI_API_KEY itself, inside a tenant too.
+    const clientOpts: any = { apiKey: options.apiKey || envSecret("GEMINI_API_KEY") || envSecret("GOOGLE_API_KEY") || "" }
     if (options.baseUrl?.trim()) clientOpts.httpOptions = { baseUrl: options.baseUrl.trim() }
 
     const ai = new GoogleGenAI(clientOpts)
